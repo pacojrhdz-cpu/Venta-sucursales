@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, semanaDelMes, calcularBono } from '../../lib/calculos';
+import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana, calcularBono } from '../../lib/calculos';
+import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
+const MESABR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 function diasDelMes(a,m){ return new Date(a,m,0).getDate(); }
 function iso(a,m,d){ return `${a}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
 
@@ -59,7 +61,9 @@ export default function Bonos() {
     }));
   }
 
-  const semanas = [...new Set(ventas.map(v=>semanaDelMes(v.fecha)))].sort();
+  const semanasMes = semanasDelMes(anio, mes);
+  const semanas = semanasMes.map(s=>s.semana);
+  const infoSemana = w => semanasMes.find(s=>s.semana===w) || { inicio:0, fin:0, numDias:7 };
   const ventaMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0),0);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
@@ -80,15 +84,20 @@ export default function Bonos() {
       <p className="section-title">Bono semanal · cada colaborador elegible recibe el % de la venta de la semana</p>
       {semanas.length===0 && <div className="card muted">Aún no hay ventas capturadas este mes.</div>}
       {semanas.map(w=>{
-        const venta = ventaDeSemana(w); const meta = metasSem[w]||0;
-        const inicioW=(w-1)*7+1, finW=w*7;
+        const venta = ventaDeSemana(w);
+        const info = infoSemana(w);
+        const metaBase = metasSem[w]||0;
+        const parcial = info.numDias < 7;
+        const meta = parcial ? metaEfectivaSemana(metaBase, info.numDias) : metaBase;
         const b = calcularBono({ ventaPeriodo:venta, meta, tipo:'semanal', cfg:config,
           colaboradores: colabsConAsistencia(f=>semanaDelMes(f)===w) });
+        const rango = `${info.inicio}–${info.fin} ${MESABR[mes-1]}`;
         return (
           <div className="card" key={w} style={{marginBottom:14}}>
             <div className="row" style={{justifyContent:'space-between'}}>
-              <h2 style={{margin:0}}>Semana {w} <span className="hint">(días {inicioW}–{finW})</span></h2>
-              <div className="muted">Venta {mxn(venta)} · Meta {mxn(meta)} ·
+              <h2 style={{margin:0}}>Semana {w} <span className="hint">({rango} · {info.numDias} días{parcial?', semana partida':''})</span></h2>
+              <div className="muted">Venta {mxn(venta)} · Meta {mxn(meta)}
+                {parcial && <span className="hint"> (ajustada de {mxn(metaBase)})</span>} ·
                 Avance <b className={b.avance>=1?'up':''}>{meta>0?pct(b.avance):'—'}</b> ·
                 Paga <b>{pct(b.porcentaje)}</b></div>
             </div>
