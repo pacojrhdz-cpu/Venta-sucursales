@@ -89,6 +89,9 @@ export default function Dashboard() {
   if (!datos) return <p className="muted">Cargando panel…</p>;
   const { trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev } = datos;
   const delta = totalPre>0 ? (totalAct-totalPre)/totalPre : null;
+  // Utilidad bruta = venta total − comisión terminal − gastos
+  const utilidadAct = totalAct - act.com - gastosAct;
+  const margenAct = totalAct>0 ? utilidadAct/totalAct : null;
 
   return (
     <>
@@ -112,6 +115,9 @@ export default function Dashboard() {
         <div className="card kpi"><div className="label">Comisión terminal</div><div className="value down">−{mxn(act.com)}</div>
           <div className="delta muted">Tarjeta: {mxn(act.tar)}</div></div>
         <div className="card kpi"><div className="label">Gastos del mes</div><div className="value">{mxn(gastosAct)}</div></div>
+        <div className="card kpi"><div className="label">Utilidad bruta</div>
+          <div className={'value '+(utilidadAct>=0?'up':'down')}>{mxn(utilidadAct)}</div>
+          <div className="delta muted">Venta − comisión − gastos{margenAct!==null?` · margen ${pct(margenAct)}`:''}</div></div>
         <div className="card kpi"><div className="label">Avance del objetivo</div>
           <div className="value">{metaTotal>0?pct(avance(totalAct,metaTotal)):'—'}</div>
           <div className="delta muted">Meta: {mxn(metaTotal)}</div>
@@ -141,22 +147,25 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>Sucursal</th><th className="num">Efectivo</th><th className="num">Tarjeta</th>
             <th className="num">Comisión</th><th className="num">Venta total</th><th className="num">Gastos</th>
-            <th className="num">Meta</th><th className="num">Avance</th></tr></thead>
+            <th className="num">Utilidad bruta</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
           <tbody>
             {porSuc.map((s,i)=>{
               const av = avance(s.total, s.meta);
+              const util = s.total - s.com - s.gastos;
               return (
                 <tr key={i}><td><b>{s.nombre}</b></td>
                   <td className="num">{mxn(s.efe)}</td><td className="num">{mxn(s.tar)}</td>
                   <td className="num down">−{mxn(s.com)}</td><td className="num"><b>{mxn(s.total)}</b></td>
-                  <td className="num">{mxn(s.gastos)}</td><td className="num">{mxn(s.meta)}</td>
+                  <td className="num">{mxn(s.gastos)}</td>
+                  <td className={'num '+(util>=0?'up':'down')}><b>{mxn(util)}</b></td>
+                  <td className="num">{mxn(s.meta)}</td>
                   <td className="num">{s.meta>0
                     ? <span className={'tag '+(av>=1?'g':av>=0.7?'a':'r')}>{pct(av)}</span>
                     : <span className="tag n">—</span>}</td>
                 </tr>
               );
             })}
-            {porSuc.length===0 && <tr><td colSpan={8} className="muted">Sin sucursales.</td></tr>}
+            {porSuc.length===0 && <tr><td colSpan={9} className="muted">Sin sucursales.</td></tr>}
           </tbody>
         </table>
         </div>
