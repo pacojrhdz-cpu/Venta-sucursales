@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, comisionTarjeta, avance, semanaDelMes } from '../../lib/calculos';
+import { mxn, pct, comisionTarjeta, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana } from '../../lib/calculos';
 
 const HOY = new Date();
 function diasDelMes(anio, mes){ return new Date(anio, mes, 0).getDate(); }
@@ -71,6 +71,14 @@ export default function Ventas() {
   });
   const totalVenta = totEfe + totTar;
 
+  // Info de semanas (lunes-domingo) del mes, para metas ajustadas
+  const infoSem = {};
+  semanasDelMes(anio, mes).forEach(s => infoSem[s.semana] = s);
+  const metaSemAjustada = w => {
+    const base = Number(metasSem[w]||0); const nd = infoSem[w]?.numDias || 7;
+    return nd < 7 ? metaEfectivaSemana(base, nd) : base;
+  };
+
   return (
     <>
       <div className="topbar"><h1>💵 Ventas diarias</h1></div>
@@ -124,7 +132,8 @@ export default function Ventas() {
                 {finSemana && (
                   <tr style={{background:'#0c1730'}}>
                     <td colSpan={5} className="muted"><b>Subtotal semana {sem}</b>
-                      {metasSem[sem]>0 && <span className="hint"> · Meta {mxn(metasSem[sem])} · Avance {pct(avance(semAcum[sem],metasSem[sem]))}</span>}</td>
+                      {infoSem[sem]?.numDias<7 && <span className="hint"> · semana partida ({infoSem[sem].numDias} días)</span>}
+                      {metaSemAjustada(sem)>0 && <span className="hint"> · Meta {mxn(metaSemAjustada(sem))} · Avance {pct(avance(semAcum[sem],metaSemAjustada(sem)))}</span>}</td>
                     <td className="num"><b>{mxn(semAcum[sem]||0)}</b></td><td></td>
                   </tr>
                 )}
