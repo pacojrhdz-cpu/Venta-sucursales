@@ -28,7 +28,7 @@ export default function Bonos() {
 
   async function cargar() {
     const desde = iso(anio,mes,1), hasta = iso(anio,mes,diasDelMes(anio,mes));
-    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta')
+    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
     const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
@@ -51,7 +51,7 @@ export default function Bonos() {
 
   function ventaDeSemana(w){
     return ventas.filter(v=>semanaDelMes(v.fecha)===w)
-      .reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0),0);
+      .reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
   }
   function colabsConAsistencia(rangoFiltro){
     return colabs.map(c=>({
@@ -64,7 +64,7 @@ export default function Bonos() {
   const semanasMes = semanasDelMes(anio, mes);
   const semanas = semanasMes.map(s=>s.semana);
   const infoSemana = w => semanasMes.find(s=>s.semana===w) || { inicio:0, fin:0, numDias:7 };
-  const ventaMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0),0);
+  const ventaMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
     colaboradores: colabsConAsistencia(()=>true),
