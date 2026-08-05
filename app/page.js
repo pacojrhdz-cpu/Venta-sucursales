@@ -23,6 +23,7 @@ export default function Dashboard() {
 
   async function cargar() {
     const tasaDe = id => Number(sucursales.find(s=>s.id===id)?.comision_tarjeta||0.035);
+    const tasaPlatDe = id => Number(sucursales.find(s=>s.id===id)?.comision_plataforma||0);
     const filtroSuc = q => suc ? q.eq('sucursal_id', suc) : q;
 
     // Rango de 6 meses para la tendencia
@@ -32,7 +33,7 @@ export default function Dashboard() {
     const hastaRango = iso(anio, mes, diasDelMes(anio,mes));
 
     const { data: vRange } = await filtroSuc(
-      supabase.from('ventas_diarias').select('sucursal_id,fecha,efectivo,tarjeta')
+      supabase.from('ventas_diarias').select('sucursal_id,fecha,efectivo,tarjeta,plataforma')
         .gte('fecha',desdeRango).lte('fecha',hastaRango));
 
     // Tendencia por mes
@@ -42,7 +43,7 @@ export default function Dashboard() {
       const tot = (vRange||[]).filter(v=>{
         const y=Number(v.fecha.slice(0,4)), mm=Number(v.fecha.slice(5,7));
         return y===cur.a && mm===cur.m;
-      }).reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0),0);
+      }).reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
       trend.push({ mes: MESES[cur.m-1].slice(0,3), total: Math.round(tot) });
       cur = cur.m===12 ? {a:cur.a+1,m:1} : {a:cur.a,m:cur.m+1};
     }
@@ -54,12 +55,13 @@ export default function Dashboard() {
     const vPrev = (vRange||[]).filter(v=>enMes(v,prev.a,prev.m));
 
     const sum = arr => arr.reduce((o,v)=>{
-      o.efe+=Number(v.efectivo||0); o.tar+=Number(v.tarjeta||0);
-      o.com+=comisionTarjeta(Number(v.tarjeta||0), tasaDe(v.sucursal_id));
+      o.efe+=Number(v.efectivo||0); o.tar+=Number(v.tarjeta||0); o.plat+=Number(v.plataforma||0);
+      o.com+=comisionTarjeta(Number(v.tarjeta||0), tasaDe(v.sucursal_id))
+            + comisionTarjeta(Number(v.plataforma||0), tasaPlatDe(v.sucursal_id));
       return o;
-    }, {efe:0,tar:0,com:0});
+    }, {efe:0,tar:0,plat:0,com:0});
     const act = sum(vAct), pre = sum(vPrev);
-    const totalAct = act.efe+act.tar, totalPre = pre.efe+pre.tar;
+    const totalAct = act.efe+act.tar+act.plat, totalPre = pre.efe+pre.tar+pre.plat;
 
     // Gastos mes actual
     const { data: gAct } = await filtroSuc(
@@ -77,10 +79,12 @@ export default function Dashboard() {
       const vv = vAct.filter(v=>v.sucursal_id===s.id);
       const efe = vv.reduce((a,v)=>a+Number(v.efectivo||0),0);
       const tar = vv.reduce((a,v)=>a+Number(v.tarjeta||0),0);
-      const com = comisionTarjeta(tar, Number(s.comision_tarjeta));
+      const plat = vv.reduce((a,v)=>a+Number(v.plataforma||0),0);
+      const com = comisionTarjeta(tar, Number(s.comision_tarjeta))
+                + comisionTarjeta(plat, Number(s.comision_plataforma||0));
       const gs = (gAct||[]).filter(g=>g.sucursal_id===s.id).reduce((a,g)=>a+Number(g.monto),0);
       const meta = (obj||[]).find(o=>o.sucursal_id===s.id)?.meta_mensual || 0;
-      return { nombre:s.nombre, efe, tar, com, total:efe+tar, gastos:gs, meta:Number(meta) };
+      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, meta:Number(meta) };
     });
 
     setDatos({ trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev });
@@ -112,8 +116,10 @@ export default function Dashboard() {
         </div>
         <div className="card kpi"><div className="label">Mes anterior</div><div className="value">{mxn(totalPre)}</div>
           <div className="delta muted">{MESES[prev.m-1]} {prev.a}</div></div>
-        <div className="card kpi"><div className="label">Comisión terminal</div><div className="value down">−{mxn(act.com)}</div>
-          <div className="delta muted">Tarjeta: {mxn(act.tar)}</div></div>
+        <div className="card kpi"><div className="label">Plataforma</div><div className="value">{mxn(act.plat)}</div>
+          <div className="delta muted">Tarjeta: {mxn(act.tar)} · Efectivo: {mxn(act.efe)}</div></div>
+        <div className="card kpi"><div className="label">Comisiones</div><div className="value down">−{mxn(act.com)}</div>
+          <div className="delta muted">terminal + plataforma</div></div>
         <div className="card kpi"><div className="label">Gastos del mes</div><div className="value">{mxn(gastosAct)}</div></div>
         <div className="card kpi"><div className="label">Utilidad bruta</div>
           <div className={'value '+(utilidadAct>=0?'up':'down')}>{mxn(utilidadAct)}</div>
@@ -146,7 +152,7 @@ export default function Dashboard() {
         <div style={{overflowX:'auto'}}>
         <table>
           <thead><tr><th>Sucursal</th><th className="num">Efectivo</th><th className="num">Tarjeta</th>
-            <th className="num">Comisión</th><th className="num">Venta total</th><th className="num">Gastos</th>
+            <th className="num">Plataforma</th><th className="num">Comisión</th><th className="num">Venta total</th><th className="num">Gastos</th>
             <th className="num">Utilidad bruta</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
           <tbody>
             {porSuc.map((s,i)=>{
@@ -155,6 +161,7 @@ export default function Dashboard() {
               return (
                 <tr key={i}><td><b>{s.nombre}</b></td>
                   <td className="num">{mxn(s.efe)}</td><td className="num">{mxn(s.tar)}</td>
+                  <td className="num">{mxn(s.plat)}</td>
                   <td className="num down">−{mxn(s.com)}</td><td className="num"><b>{mxn(s.total)}</b></td>
                   <td className="num">{mxn(s.gastos)}</td>
                   <td className={'num '+(util>=0?'up':'down')}><b>{mxn(util)}</b></td>
@@ -165,7 +172,7 @@ export default function Dashboard() {
                 </tr>
               );
             })}
-            {porSuc.length===0 && <tr><td colSpan={9} className="muted">Sin sucursales.</td></tr>}
+            {porSuc.length===0 && <tr><td colSpan={10} className="muted">Sin sucursales.</td></tr>}
           </tbody>
         </table>
         </div>
