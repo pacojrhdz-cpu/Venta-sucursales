@@ -53,3 +53,29 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .notice{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:#fcd34d;padding:12px 14px;border-radius:10px;font-size:13px;margin-bottom:16px}
 .hint{font-size:12px;color:var(--muted);margin-top:6px}
 @media(max-width:800px){.layout{flex-direction:column}.sidebar{width:100%;height:auto;position:static;display:flex;flex-wrap:wrap;gap:6px}.nav{display:flex;flex-wrap:wrap;gap:4px}.brand{width:100%}}
+
+/* ===== Impresión / PDF (Reporte semanal) ===== */
+@media print {
+  .sidebar, .no-print, .topbar button { display: none !important; }
+  .layout { display: block; }
+  .main { max-width: 100%; padding: 0; margin: 0; }
+  body { background: #fff; color: #111; }
+  h1 { font-size: 20px; }
+  .card { background: #fff; border: 1px solid #d0d5dd; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+  .kpi .value, .kpi .label, .muted, .hint, td, th, h1, h2 { color: #111 !important; }
+  .up { color: #067647 !important; }
+  .down { color: #b42318 !important; }
+  .bar { background: #eee; }
+  .tag.g { background:#e7f6ec; color:#067647; }
+  .tag.a { background:#fdf3e7; color:#b54708; }
+  .tag.r { background:#fdeceb; color:#b42318; }
+  .tag.n { background:#eef1f4; color:#475467; }
+  @page { margin: 14mm; }
+}
+
+/* ===== Logo ===== */
+.brand-logo { height: 32px; width: auto; filter: brightness(0) invert(1); }
+.reporte-logo { height: 56px; width: auto; filter: brightness(0) invert(1); }
+@media print {
+  .reporte-logo { filter: none; }   /* en el PDF el logo va en negro sobre blanco */
+}
