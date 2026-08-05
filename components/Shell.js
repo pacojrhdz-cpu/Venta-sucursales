@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/',              label: 'Panel',          icon: '📊' },
   { href: '/ventas',        label: 'Ventas diarias', icon: '💵' },
   { href: '/gastos',        label: 'Gastos',         icon: '🧾' },
+  { href: '/reporte',       label: 'Reporte semanal',icon: '📄' },
   { href: '/objetivos',     label: 'Objetivos',      icon: '🎯' },
   { href: '/colaboradores', label: 'Colaboradores',  icon: '👥' },
   { href: '/bonos',         label: 'Bonos',          icon: '🏆' },
@@ -64,7 +65,7 @@ export default function Shell({ children }) {
     return (
       <div className="center-screen">
         <form className="card login" onSubmit={entrar}>
-          <div className="brand">📊 Ventas por Sucursal</div>
+          <div className="brand"><img src="/logo.png" className="brand-logo" alt="Logo" /> Ventas por Sucursal</div>
           <p className="muted" style={{marginTop:0}}>
             {modo === 'login' ? 'Inicia sesión para continuar' : 'Crea tu cuenta de administrador'}
           </p>
@@ -93,7 +94,7 @@ export default function Shell({ children }) {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">📊 Ventas<small>Panel administrativo</small></div>
+        <div className="brand"><img src="/logo.png" className="brand-logo" alt="Logo" /> <span>Ventas<small>Panel administrativo</small></span></div>
         <nav className="nav">
           {LINKS.map(l => (
             <Link key={l.href} href={l.href} className={pathname === l.href ? 'active' : ''}>
