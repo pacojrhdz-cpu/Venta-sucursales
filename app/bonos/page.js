@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, metaSemanaNatural, diasEnMes } from '../../lib/calculos';
+import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, diasEnMes } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -19,20 +19,22 @@ export default function Bonos() {
   const [ventas, setVentas] = useState([]);
   const [colabs, setColabs] = useState([]);
   const [inc, setInc] = useState([]);
-  const [metasPorMes, setMetasPorMes] = useState({});
+  const [metaMes, setMetaMes] = useState(0);
 
   // Semanas naturales (lun-dom) que TOCAN el mes, con cuántos días caen en él.
   const semanas = semanasNaturalesQueTocan(anio, mes);
+  const ndMes = diasEnMes(anio, mes);
+  const pmes = `${anio}-${String(mes).padStart(2,'0')}`;
+  const iniMesISO = `${pmes}-01`;
+  const finMesISO = `${pmes}-${String(ndMes).padStart(2,'0')}`;
+  const metaDiaria = ndMes>0 ? metaMes/ndMes : 0;
 
   useEffect(() => { if (sucursales.length && !suc) setSuc(sucursales[0].id); }, [sucursales]);
   useEffect(() => { if (suc) cargar(); }, [suc, anio, mes]);
 
   async function cargar() {
-    // Rango: del lunes de la primera semana al domingo de la última (cubre meses vecinos)
-    const desde = semanas.length ? semanas[0].inicioISO : `${anio}-${String(mes).padStart(2,'0')}-01`;
-    const hasta = semanas.length ? semanas[semanas.length-1].finISO
-                                 : `${anio}-${String(mes).padStart(2,'0')}-${String(diasEnMes(anio,mes)).padStart(2,'0')}`;
-
+    const desde = semanas.length ? semanas[0].inicioISO : iniMesISO;
+    const hasta = semanas.length ? semanas[semanas.length-1].finISO : finMesISO;
     const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
@@ -46,9 +48,9 @@ export default function Bonos() {
       incid = a||[];
     }
     setInc(incid);
-    // Todas las metas mensuales de la sucursal (para armar metas de semanas que cruzan meses)
-    const { data: obj } = await supabase.from('objetivos').select('anio,mes,meta_mensual').eq('sucursal_id',suc);
-    const mp={}; (obj||[]).forEach(o=>{ mp[`${o.anio}-${o.mes}`]=Number(o.meta_mensual||0); }); setMetasPorMes(mp);
+    const { data: om } = await supabase.from('objetivos').select('meta_mensual')
+      .eq('sucursal_id',suc).eq('anio',anio).eq('mes',mes).maybeSingle();
+    setMetaMes(Number(om?.meta_mensual||0));
   }
 
   const ventaEntre = (a,b) => ventas.filter(v=>v.fecha>=a && v.fecha<=b)
@@ -69,24 +71,10 @@ export default function Bonos() {
   }
 
   // Bono mensual (mes calendario completo)
-  const pmes = `${anio}-${String(mes).padStart(2,'0')}`;
-  const ventaMes = ventas.filter(v=>v.fecha.startsWith(pmes))
-    .reduce((s,v)=>s+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
-  const metaMes = Number(metasPorMes[`${anio}-${mes}`]||0);
-
-  // Metas para el cálculo semanal: si un mes vecino no tiene meta capturada,
-  // usa la del mes seleccionado (evita metas bajas en la semana que cruza de mes).
-  const prev = mes===1 ? {a:anio-1,m:12} : {a:anio,m:mes-1};
-  const next = mes===12 ? {a:anio+1,m:1} : {a:anio,m:mes+1};
-  const metasCalc = { ...metasPorMes };
-  [`${prev.a}-${prev.m}`, `${next.a}-${next.m}`, `${anio}-${mes}`].forEach(k=>{
-    if (!metasCalc[k]) metasCalc[k] = metaMes;
-  });
-  const finMes = `${pmes}-${String(diasEnMes(anio,mes)).padStart(2,'0')}`;
-  const iniMes = `${pmes}-01`;
+  const ventaMes = ventaEntre(iniMesISO, finMesISO);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
-    colaboradores: colabsEntre(iniMes, finMes),
+    colaboradores: colabsEntre(iniMesISO, finMesISO),
   });
 
   return (
@@ -100,37 +88,38 @@ export default function Bonos() {
         </div>
       </div>
 
-      <p className="section-title">Bono semanal · semana natural (lun–dom); si cruza de mes, se paga la parte proporcional de cada mes</p>
+      <p className="section-title">Bono semanal · cada mes evalúa sus propios días de la semana contra su objetivo proporcional</p>
       {semanas.length===0 && <div className="card muted">Aún no hay semanas para este mes.</div>}
       {semanas.map((sem,idx)=>{
-        const venta = ventaEntre(sem.inicioISO, sem.finISO);
-        const meta = metaSemanaNatural(sem.inicioISO, metasCalc);
+        // Solo la parte de la semana que cae en el mes seleccionado
+        const start = sem.inicioISO > iniMesISO ? sem.inicioISO : iniMesISO;
+        const end   = sem.finISO   < finMesISO ? sem.finISO   : finMesISO;
+        const venta = ventaEntre(start, end);
+        const meta  = sem.diasEnMesSel * metaDiaria;   // objetivo proporcional a los días en este mes
         const cruzaMes = sem.diasEnMesSel < 7;
-        const fracMes = sem.diasEnMesSel / 7; // proporción que se paga en este mes
         const b = calcularBono({ ventaPeriodo:venta, meta, tipo:'semanal', cfg:config,
-          colaboradores: colabsEntre(sem.inicioISO, sem.finISO) });
-        const totalMesSem = b.totalPagar * fracMes;
+          colaboradores: colabsEntre(start, end) });
         return (
           <div className="card" key={idx} style={{marginBottom:14}}>
             <div className="row" style={{justifyContent:'space-between'}}>
               <h2 style={{margin:0}}>Semana {idx+1} <span className="hint">({etiqueta(sem.inicioISO)} – {etiqueta(sem.finISO)}{cruzaMes?` · ${sem.diasEnMesSel} de 7 días en ${MESES[mes-1]}`:''})</span></h2>
-              <div className="muted">Venta {mxn(venta)} · Meta {mxn(meta)} ·
+              <div className="muted">Venta {mxn(venta)} · Meta {mxn(meta)}
+                {cruzaMes && <span className="hint"> ({sem.diasEnMesSel} días)</span>} ·
                 Avance <b className={b.avance>=1?'up':''}>{meta>0?pct(b.avance):'—'}</b> ·
-                Paga <b>{pct(b.porcentaje)}</b>{cruzaMes && <span className="hint"> · este mes paga {sem.diasEnMesSel}/7</span>}</div>
+                Paga <b>{pct(b.porcentaje)}</b></div>
             </div>
+            {cruzaMes && <p className="hint" style={{marginTop:6}}>El resto de esta semana ({7-sem.diasEnMesSel} días) se paga en el otro mes.</p>}
             <table style={{marginTop:10}}>
-              <thead><tr><th>Colaborador</th><th className="num">Días/sem</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th>
-                {cruzaMes && <th className="num">Bono semana</th>}<th className="num">A pagar {MESES[mes-1]}</th></tr></thead>
+              <thead><tr><th>Colaborador</th><th className="num">Días/sem</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
               <tbody>
                 {b.detalle.map(d=>(
                   <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.dias}</td><td className="num">{d.faltas}</td><td className="num">{d.retardos}</td>
                     <td>{d.elegible?<span className="tag g">Elegible</span>:<span className="tag r">Sin bono</span>}</td>
-                    {cruzaMes && <td className="num muted">{mxn(d.bono)}</td>}
-                    <td className="num"><b>{mxn(d.bono*fracMes)}</b></td></tr>
+                    <td className="num"><b>{mxn(d.bono)}</b></td></tr>
                 ))}
-                {b.detalle.length===0 && <tr><td colSpan={cruzaMes?7:6} className="muted">Sin colaboradores.</td></tr>}
+                {b.detalle.length===0 && <tr><td colSpan={6} className="muted">Sin colaboradores.</td></tr>}
               </tbody>
-              <tfoot><tr><td colSpan={cruzaMes?6:5}><b>Total a pagar en {MESES[mes-1]} (semana {idx+1})</b></td><td className="num"><b>{mxn(totalMesSem)}</b></td></tr></tfoot>
+              <tfoot><tr><td colSpan={5}><b>Total a pagar semana {idx+1}</b></td><td className="num"><b>{mxn(b.totalPagar)}</b></td></tr></tfoot>
             </table>
           </div>
         );
