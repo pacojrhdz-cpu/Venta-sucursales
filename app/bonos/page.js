@@ -62,7 +62,9 @@ export default function Bonos() {
   // periodo es corto (ej. fin de semana de 2 dias), quien trabaja >= esos dias
   // recibe el bono completo. En una semana completa se prorratea.
   function colabsEntre(a, b, periodDias){
-    const denom = Math.min(periodDias || refDias, refDias) || 1;
+    // El proporcional se calcula sobre los DÍAS DEL PERIODO (7 en semana completa,
+    // 2 en un fin de semana, etc.). Se topa en 1 (nadie cobra más del 100%).
+    const denom = (periodDias && periodDias > 0) ? periodDias : refDias;
     return colabs.map(c=>{
       const dias = Number(c.dias_semana||6);
       return {
