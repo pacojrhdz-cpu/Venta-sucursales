@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana } from '../../lib/calculos';
+import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaSemanalEfectiva } from '../../lib/calculos';
 
 const HOY = new Date();
 function diasDelMes(anio, mes){ return new Date(anio, mes, 0).getDate(); }
@@ -16,7 +16,7 @@ export default function Ventas() {
   const [mes, setMes] = useState(HOY.getMonth() + 1);
   const [tasa, setTasa] = useState(0.035);       // comisión terminal
   const [tasaPlat, setTasaPlat] = useState(0);   // comisión plataforma
-  const [ventas, setVentas] = useState({});      // dia -> {efectivo,tarjeta,plataforma}
+  const [ventas, setVentas] = useState({});      // dia -> {efectivo,tarjeta,plataforma,propinas}
   const [gastos, setGastos] = useState({});      // dia -> monto
   const [metaMes, setMetaMes] = useState(0);
   const [metasSem, setMetasSem] = useState({});
@@ -31,8 +31,8 @@ export default function Ventas() {
     const desde = iso(anio,mes,1), hasta = iso(anio,mes,diasDelMes(anio,mes));
 
     const { data: v } = await supabase.from('ventas_diarias')
-      .select('fecha,efectivo,tarjeta,plataforma').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
-    const mv = {}; (v||[]).forEach(r => { mv[Number(r.fecha.slice(8,10))] = { efectivo:r.efectivo, tarjeta:r.tarjeta, plataforma:r.plataforma }; });
+      .select('fecha,efectivo,tarjeta,plataforma,propinas').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
+    const mv = {}; (v||[]).forEach(r => { mv[Number(r.fecha.slice(8,10))] = { efectivo:r.efectivo, tarjeta:r.tarjeta, plataforma:r.plataforma, propinas:r.propinas }; });
     setVentas(mv);
 
     const { data: g } = await supabase.from('gastos')
@@ -49,39 +49,42 @@ export default function Ventas() {
   }
 
   async function guardarDia(dia, campo, valor) {
-    const actual = ventas[dia] || { efectivo:0, tarjeta:0, plataforma:0 };
+    const actual = ventas[dia] || { efectivo:0, tarjeta:0, plataforma:0, propinas:0 };
     const nuevo = { ...actual, [campo]: Number(valor||0) };
     setVentas({ ...ventas, [dia]: nuevo });
     await supabase.from('ventas_diarias').upsert({
       sucursal_id: suc, fecha: iso(anio,mes,dia),
-      efectivo: Number(nuevo.efectivo||0), tarjeta: Number(nuevo.tarjeta||0), plataforma: Number(nuevo.plataforma||0),
+      efectivo: Number(nuevo.efectivo||0), tarjeta: Number(nuevo.tarjeta||0),
+      plataforma: Number(nuevo.plataforma||0), propinas: Number(nuevo.propinas||0),
     }, { onConflict: 'sucursal_id,fecha' });
   }
 
   const comisionDia = (tar, plat) => Number(tar||0)*tasa + Number(plat||0)*tasaPlat;
 
   const ndias = diasDelMes(anio, mes);
+  const diasMes = ndias;
   const dias = Array.from({length:ndias}, (_,i)=>i+1);
 
   // Totales por semana y mes
-  let totEfe=0, totTar=0, totPlat=0, totCom=0, totGas=0;
+  let totEfe=0, totTar=0, totPlat=0, totProp=0, totCom=0, totGas=0;
   const semAcum = {};
   dias.forEach(d => {
-    const v = ventas[d] || {}; const efe=Number(v.efectivo||0), tar=Number(v.tarjeta||0), plat=Number(v.plataforma||0);
+    const v = ventas[d] || {};
+    const efe=Number(v.efectivo||0), tar=Number(v.tarjeta||0), plat=Number(v.plataforma||0), prop=Number(v.propinas||0);
     const com = comisionDia(tar, plat); const tot = efe+tar+plat; const gas=Number(gastos[d]||0);
-    totEfe+=efe; totTar+=tar; totPlat+=plat; totCom+=com; totGas+=gas;
+    totEfe+=efe; totTar+=tar; totPlat+=plat; totProp+=prop; totCom+=com; totGas+=gas;
     const sem = semanaDelMes(iso(anio,mes,d));
     semAcum[sem] = (semAcum[sem]||0) + tot;
   });
   const totalVenta = totEfe + totTar + totPlat;
 
-  // Info de semanas (lunes-domingo) del mes, para metas ajustadas
+  // Info de semanas (lunes-domingo) del mes, para metas ajustadas/automáticas
   const infoSem = {};
   semanasDelMes(anio, mes).forEach(s => infoSem[s.semana] = s);
-  const metaSemAjustada = w => {
-    const base = Number(metasSem[w]||0); const nd = infoSem[w]?.numDias || 7;
-    return nd < 7 ? metaEfectivaSemana(base, nd) : base;
-  };
+  const metaSemAjustada = w => metaSemanalEfectiva({
+    metaSemanalManual: Number(metasSem[w]||0), metaMensual: metaMes,
+    numDiasSemana: infoSem[w]?.numDias || 7, diasMes,
+  });
 
   return (
     <>
@@ -103,6 +106,8 @@ export default function Ventas() {
         <div className="card kpi"><div className="label">Efectivo</div><div className="value">{mxn(totEfe)}</div></div>
         <div className="card kpi"><div className="label">Tarjeta</div><div className="value">{mxn(totTar)}</div></div>
         <div className="card kpi"><div className="label">Plataforma</div><div className="value">{mxn(totPlat)}</div></div>
+        <div className="card kpi"><div className="label">Propinas</div><div className="value">{mxn(totProp)}</div>
+          <div className="delta muted">no es venta ni gasto</div></div>
         <div className="card kpi"><div className="label">Comisiones</div><div className="value down">−{mxn(totCom)}</div>
           <div className="delta muted">terminal + plataforma</div></div>
         <div className="card kpi"><div className="label">Gastos mes</div><div className="value">{mxn(totGas)}</div></div>
@@ -114,7 +119,7 @@ export default function Ventas() {
         <table>
           <thead><tr>
             <th>Día</th><th>Sem</th><th className="num">Efectivo</th><th className="num">Tarjeta</th>
-            <th className="num">Plataforma</th><th className="num">Comisión</th><th className="num">Total</th><th className="num">Gastos</th>
+            <th className="num">Plataforma</th><th className="num">Propinas</th><th className="num">Comisión</th><th className="num">Total</th><th className="num">Gastos</th>
           </tr></thead>
           <tbody>
             {dias.map(d => {
@@ -126,22 +131,25 @@ export default function Ventas() {
                 <Fragment key={d}>
                 <tr>
                   <td><b>{d}</b></td><td className="muted">{sem}</td>
-                  <td className="num"><input type="number" style={{width:100,textAlign:'right'}}
+                  <td className="num"><input type="number" style={{width:95,textAlign:'right'}}
                     defaultValue={v.efectivo??''} placeholder="0"
                     onBlur={e=>guardarDia(d,'efectivo',e.target.value)} /></td>
-                  <td className="num"><input type="number" style={{width:100,textAlign:'right'}}
+                  <td className="num"><input type="number" style={{width:95,textAlign:'right'}}
                     defaultValue={v.tarjeta??''} placeholder="0"
                     onBlur={e=>guardarDia(d,'tarjeta',e.target.value)} /></td>
-                  <td className="num"><input type="number" style={{width:100,textAlign:'right'}}
+                  <td className="num"><input type="number" style={{width:95,textAlign:'right'}}
                     defaultValue={v.plataforma??''} placeholder="0"
                     onBlur={e=>guardarDia(d,'plataforma',e.target.value)} /></td>
+                  <td className="num"><input type="number" style={{width:90,textAlign:'right'}}
+                    defaultValue={v.propinas??''} placeholder="0"
+                    onBlur={e=>guardarDia(d,'propinas',e.target.value)} /></td>
                   <td className="num down">{com>0?'−'+mxn(com):'—'}</td>
                   <td className="num"><b>{tot>0?mxn(tot):'—'}</b></td>
                   <td className="num muted">{gastos[d]?mxn(gastos[d]):'—'}</td>
                 </tr>
                 {finSemana && (
                   <tr style={{background:'#0c1730'}}>
-                    <td colSpan={6} className="muted"><b>Subtotal semana {sem}</b>
+                    <td colSpan={7} className="muted"><b>Subtotal semana {sem}</b>
                       {infoSem[sem]?.numDias<7 && <span className="hint"> · semana partida ({infoSem[sem].numDias} días)</span>}
                       {metaSemAjustada(sem)>0 && <span className="hint"> · Meta {mxn(metaSemAjustada(sem))} · Avance {pct(avance(semAcum[sem],metaSemAjustada(sem)))}</span>}</td>
                     <td className="num"><b>{mxn(semAcum[sem]||0)}</b></td><td></td>
@@ -156,13 +164,14 @@ export default function Ventas() {
             <td className="num"><b>{mxn(totEfe)}</b></td>
             <td className="num"><b>{mxn(totTar)}</b></td>
             <td className="num"><b>{mxn(totPlat)}</b></td>
+            <td className="num"><b>{mxn(totProp)}</b></td>
             <td className="num down"><b>−{mxn(totCom)}</b></td>
             <td className="num"><b>{mxn(totalVenta)}</b></td>
             <td className="num"><b>{mxn(totGas)}</b></td>
           </tr></tfoot>
         </table>
         </div>
-        <p className="hint">Escribe el monto y sal del campo (clic fuera) para guardar. Comisión = tarjeta × {pct(tasa)} + plataforma × {pct(tasaPlat)}.</p>
+        <p className="hint">Escribe el monto y sal del campo (clic fuera) para guardar. Las propinas se registran pero NO cuentan como venta, objetivo, ni comisión. Comisión = tarjeta × {pct(tasa)} + plataforma × {pct(tasaPlat)}.</p>
       </div>
     </>
   );
