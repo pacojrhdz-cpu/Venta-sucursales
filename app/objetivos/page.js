@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, semanasDelMes, metaEfectivaSemana } from '../../lib/calculos';
+import { mxn, semanasDelMes, metaEfectivaSemana, metaSemanalEfectiva } from '../../lib/calculos';
 
 const HOY = new Date();
 const MESABR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function diasDelMes(a,m){ return new Date(a,m,0).getDate(); }
 
 export default function Objetivos() {
   const { sucursales } = useSucursales();
@@ -70,26 +71,27 @@ export default function Objetivos() {
           <h2>Meta mensual</h2>
           <label>Meta de venta del mes</label>
           <input type="number" value={metaMensual} onChange={e=>setMetaMensual(e.target.value)} placeholder="0.00" />
-          <p className="hint">Sobre esta meta se calcula el bono mensual.</p>
+          <p className="hint">Sobre esta meta se calcula el bono mensual, y también las metas semanales automáticas.</p>
         </div>
         <div className="card">
           <h2>Metas semanales <span className="hint">(lunes a domingo)</span></h2>
+          <p className="hint" style={{marginTop:0}}>Si dejas una semana <b>vacía</b>, se usa automáticamente la parte proporcional de la meta mensual. Solo escribe un valor si quieres una meta distinta para esa semana.</p>
           {semanasMes.map(s => {
             const parcial = s.numDias < 7;
-            const base = Number(semanas[s.semana]||0);
+            const manual = Number(semanas[s.semana]||0);
+            const efectiva = metaSemanalEfectiva({ metaSemanalManual: manual, metaMensual: Number(metaMensual||0), numDiasSemana: s.numDias, diasMes: diasDelMes(anio,mes) });
             return (
               <div key={s.semana} style={{marginBottom:10}}>
                 <label>Semana {s.semana} · {s.inicio}–{s.fin} {MESABR[mes-1]}
                   {parcial && <span style={{color:'#fbbf24'}}> · {s.numDias} días (semana partida)</span>}</label>
                 <input type="number" value={semanas[s.semana] ?? ''}
-                  onChange={e=>setSemanas({...semanas,[s.semana]:e.target.value})} placeholder="0.00" />
-                {parcial && base>0 &&
-                  <p className="hint">Para el bono, esta semana se ajusta a {s.numDias}/7:
-                    meta efectiva ≈ <b>{mxn(metaEfectivaSemana(base, s.numDias))}</b></p>}
+                  onChange={e=>setSemanas({...semanas,[s.semana]:e.target.value})}
+                  placeholder={`auto: ${efectiva.toFixed(2)}`} />
+                <p className="hint">{manual>0 ? 'Meta manual' : 'Meta automática'} para el bono: <b>{mxn(efectiva)}</b></p>
               </div>
             );
           })}
-          <p className="hint">Captura la meta de una semana completa; las semanas partidas se ajustan solas. Suma capturada: <b>{mxn(sumaSem)}</b></p>
+          <p className="hint">Suma capturada a mano: <b>{mxn(sumaSem)}</b></p>
         </div>
       </div>
     </>
