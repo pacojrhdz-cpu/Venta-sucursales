@@ -58,12 +58,16 @@ export default function Bonos() {
 
   // Referencia de jornada completa = el que mas dias trabaja del equipo
   const refDias = colabs.length ? Math.max(...colabs.map(c=>Number(c.dias_semana||6))) : 6;
-  function colabsEntre(a,b){
+  // El factor se mide contra los dias del periodo evaluado (periodDias). Si el
+  // periodo es corto (ej. fin de semana de 2 dias), quien trabaja >= esos dias
+  // recibe el bono completo. En una semana completa se prorratea.
+  function colabsEntre(a, b, periodDias){
+    const denom = Math.min(periodDias || refDias, refDias) || 1;
     return colabs.map(c=>{
       const dias = Number(c.dias_semana||6);
       return {
         id:c.id, nombre:c.nombre, dias,
-        factor: refDias>0 ? Math.min(1, dias/refDias) : 1,
+        factor: Math.min(1, dias/denom),
         faltas: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='falta' && i.fecha>=a && i.fecha<=b).length,
         retardos: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='retardo' && i.fecha>=a && i.fecha<=b).length,
       };
@@ -74,7 +78,7 @@ export default function Bonos() {
   const ventaMes = ventaEntre(iniMesISO, finMesISO);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
-    colaboradores: colabsEntre(iniMesISO, finMesISO),
+    colaboradores: colabsEntre(iniMesISO, finMesISO, ndMes),
   });
 
   return (
@@ -98,7 +102,7 @@ export default function Bonos() {
         const meta  = sem.diasEnMesSel * metaDiaria;   // objetivo proporcional a los días en este mes
         const cruzaMes = sem.diasEnMesSel < 7;
         const b = calcularBono({ ventaPeriodo:venta, meta, tipo:'semanal', cfg:config,
-          colaboradores: colabsEntre(start, end) });
+          colaboradores: colabsEntre(start, end, sem.diasEnMesSel) });
         return (
           <div className="card" key={idx} style={{marginBottom:14}}>
             <div className="row" style={{justifyContent:'space-between'}}>
