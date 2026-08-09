@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana, calcularBono } from '../../lib/calculos';
+import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana, metaSemanalEfectiva, calcularBono } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -53,17 +53,24 @@ export default function Bonos() {
     return ventas.filter(v=>semanaDelMes(v.fecha)===w)
       .reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
   }
+  // Referencia de jornada completa = el que mas dias trabaja del equipo
+  const refDias = colabs.length ? Math.max(...colabs.map(c=>Number(c.dias_semana||6))) : 6;
   function colabsConAsistencia(rangoFiltro){
-    return colabs.map(c=>({
-      id:c.id, nombre:c.nombre,
-      faltas: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='falta' && rangoFiltro(i.fecha)).length,
-      retardos: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='retardo' && rangoFiltro(i.fecha)).length,
-    }));
+    return colabs.map(c=>{
+      const dias = Number(c.dias_semana||6);
+      return {
+        id:c.id, nombre:c.nombre, dias,
+        factor: refDias>0 ? Math.min(1, dias/refDias) : 1,
+        faltas: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='falta' && rangoFiltro(i.fecha)).length,
+        retardos: inc.filter(i=>i.colaborador_id===c.id && i.estatus==='retardo' && rangoFiltro(i.fecha)).length,
+      };
+    });
   }
 
   const semanasMes = semanasDelMes(anio, mes);
   const semanas = semanasMes.map(s=>s.semana);
   const infoSemana = w => semanasMes.find(s=>s.semana===w) || { inicio:0, fin:0, numDias:7 };
+  const diasMes = diasDelMes(anio, mes);
   const ventaMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
@@ -81,43 +88,43 @@ export default function Bonos() {
         </div>
       </div>
 
-      <p className="section-title">Bono semanal · cada colaborador elegible recibe el % de la venta de la semana</p>
+      <p className="section-title">Bono semanal · el bono se ajusta a los días que trabaja cada colaborador</p>
       {semanas.length===0 && <div className="card muted">Aún no hay ventas capturadas este mes.</div>}
       {semanas.map(w=>{
         const venta = ventaDeSemana(w);
         const info = infoSemana(w);
-        const metaBase = metasSem[w]||0;
-        const parcial = info.numDias < 7;
-        const meta = parcial ? metaEfectivaSemana(metaBase, info.numDias) : metaBase;
+        const metaManual = metasSem[w]||0;
+        const auto = !(metaManual>0);
+        const meta = metaSemanalEfectiva({ metaSemanalManual: metaManual, metaMensual: metaMes, numDiasSemana: info.numDias, diasMes });
         const b = calcularBono({ ventaPeriodo:venta, meta, tipo:'semanal', cfg:config,
           colaboradores: colabsConAsistencia(f=>semanaDelMes(f)===w) });
         const rango = `${info.inicio}–${info.fin} ${MESABR[mes-1]}`;
         return (
           <div className="card" key={w} style={{marginBottom:14}}>
             <div className="row" style={{justifyContent:'space-between'}}>
-              <h2 style={{margin:0}}>Semana {w} <span className="hint">({rango} · {info.numDias} días{parcial?', semana partida':''})</span></h2>
+              <h2 style={{margin:0}}>Semana {w} <span className="hint">({rango} · {info.numDias} días{info.numDias<7?', semana partida':''})</span></h2>
               <div className="muted">Venta {mxn(venta)} · Meta {mxn(meta)}
-                {parcial && <span className="hint"> (ajustada de {mxn(metaBase)})</span>} ·
+                <span className="hint"> ({auto?'auto de la meta mensual':'meta semanal'})</span> ·
                 Avance <b className={b.avance>=1?'up':''}>{meta>0?pct(b.avance):'—'}</b> ·
                 Paga <b>{pct(b.porcentaje)}</b></div>
             </div>
             <table style={{marginTop:10}}>
-              <thead><tr><th>Colaborador</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
+              <thead><tr><th>Colaborador</th><th className="num">Días/sem</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
               <tbody>
                 {b.detalle.map(d=>(
-                  <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.faltas}</td><td className="num">{d.retardos}</td>
+                  <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.dias}</td><td className="num">{d.faltas}</td><td className="num">{d.retardos}</td>
                     <td>{d.elegible?<span className="tag g">Elegible</span>:<span className="tag r">Sin bono</span>}</td>
                     <td className="num"><b>{mxn(d.bono)}</b></td></tr>
                 ))}
-                {b.detalle.length===0 && <tr><td colSpan={5} className="muted">Sin colaboradores.</td></tr>}
+                {b.detalle.length===0 && <tr><td colSpan={6} className="muted">Sin colaboradores.</td></tr>}
               </tbody>
-              <tfoot><tr><td colSpan={4}><b>Total a pagar semana {w}</b></td><td className="num"><b>{mxn(b.totalPagar)}</b></td></tr></tfoot>
+              <tfoot><tr><td colSpan={5}><b>Total a pagar semana {w}</b></td><td className="num"><b>{mxn(b.totalPagar)}</b></td></tr></tfoot>
             </table>
           </div>
         );
       })}
 
-      <p className="section-title">Bono mensual · la bolsa se reparte en partes iguales entre elegibles</p>
+      <p className="section-title">Bono mensual · la bolsa se reparte entre elegibles, proporcional a sus días</p>
       <div className="card">
         <div className="row" style={{justifyContent:'space-between'}}>
           <h2 style={{margin:0}}>Mes completo</h2>
@@ -126,16 +133,16 @@ export default function Bonos() {
             Paga <b>{pct(bonoMensual.porcentaje)}</b> · Bolsa <b>{mxn(bonoMensual.montoBase)}</b></div>
         </div>
         <table style={{marginTop:10}}>
-          <thead><tr><th>Colaborador</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
+          <thead><tr><th>Colaborador</th><th className="num">Días/sem</th><th className="num">Faltas</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
           <tbody>
             {bonoMensual.detalle.map(d=>(
-              <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.faltas}</td><td className="num">{d.retardos}</td>
+              <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.dias}</td><td className="num">{d.faltas}</td><td className="num">{d.retardos}</td>
                 <td>{d.elegible?<span className="tag g">Elegible</span>:<span className="tag r">Sin bono</span>}</td>
                 <td className="num"><b>{mxn(d.bono)}</b></td></tr>
             ))}
-            {bonoMensual.detalle.length===0 && <tr><td colSpan={5} className="muted">Sin colaboradores.</td></tr>}
+            {bonoMensual.detalle.length===0 && <tr><td colSpan={6} className="muted">Sin colaboradores.</td></tr>}
           </tbody>
-          <tfoot><tr><td colSpan={4}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(bonoMensual.totalPagar)}</b></td></tr></tfoot>
+          <tfoot><tr><td colSpan={5}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(bonoMensual.totalPagar)}</b></td></tr></tfoot>
         </table>
       </div>
     </>
