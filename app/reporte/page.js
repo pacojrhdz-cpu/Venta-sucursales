@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaEfectivaSemana } from '../../lib/calculos';
+import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaSemanalEfectiva } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -43,7 +43,7 @@ export default function Reporte() {
     setTasaPlat(s?Number(s.comision_plataforma||0):0);
     const desde = iso(anio,mes,1), hasta = iso(anio,mes,diasDelMes(anio,mes));
     const { data: v } = await supabase.from('ventas_diarias')
-      .select('fecha,efectivo,tarjeta,plataforma').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
+      .select('fecha,efectivo,tarjeta,plataforma,propinas').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
     const { data: g } = await supabase.from('gastos')
       .select('fecha,monto,metodo,categoria,descripcion').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta).order('fecha');
@@ -63,21 +63,23 @@ export default function Reporte() {
   const efeSem = vSem.reduce((a,v)=>a+Number(v.efectivo||0),0);
   const tarSem = vSem.reduce((a,v)=>a+Number(v.tarjeta||0),0);
   const platSem = vSem.reduce((a,v)=>a+Number(v.plataforma||0),0);
+  const propSem = vSem.reduce((a,v)=>a+Number(v.propinas||0),0);
   const totalSem = efeSem+tarSem+platSem;
   const comSem = tarSem*tasa + platSem*tasaPlat;
 
   const gSem = gastos.filter(g=>semanaDelMes(g.fecha)===semana);
   const gastosEfeSem = gSem.filter(g=>(g.metodo||'efectivo')==='efectivo').reduce((a,g)=>a+Number(g.monto),0);
   const gastosTotSem = gSem.reduce((a,g)=>a+Number(g.monto),0);
-  const efectivoRestante = efeSem - gastosEfeSem;
+  // Las propinas salen de la caja en efectivo (aunque entren por terminal),
+  // por eso reducen el efectivo restante, pero NO son gasto ni afectan la utilidad.
+  const efectivoRestante = efeSem - gastosEfeSem - propSem;
 
-  const metaSemBase = Number(metasSem[semana]||0);
-  const metaSemAjust = info.numDias<7 ? metaEfectivaSemana(metaSemBase, info.numDias) : metaSemBase;
+  const ndMes = diasDelMes(anio,mes);
+  const metaSemAjust = metaSemanalEfectiva({ metaSemanalManual: Number(metasSem[semana]||0), metaMensual: metaMes, numDiasSemana: info.numDias, diasMes: ndMes });
   const avSem = avance(totalSem, metaSemAjust);
 
   // --- Proyeccion del mes ---
   const totalMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
-  const ndMes = diasDelMes(anio,mes);
   const esMesActual = anio===HOY.getFullYear() && mes===(HOY.getMonth()+1);
   const diasTrans = esMesActual ? HOY.getDate() : ndMes;
   const proyeccion = diasTrans>0 ? (totalMes/diasTrans)*ndMes : totalMes;
@@ -122,9 +124,11 @@ export default function Reporte() {
           <div className="delta muted">Efe {mxn(efeSem)} · Tar {mxn(tarSem)} · Plat {mxn(platSem)}</div></div>
         <div className="card kpi"><div className="label">Ventas en efectivo</div><div className="value">{mxn(efeSem)}</div></div>
         <div className="card kpi"><div className="label">Gastos en efectivo</div><div className="value down">−{mxn(gastosEfeSem)}</div></div>
+        <div className="card kpi"><div className="label">Propinas pagadas (efectivo)</div><div className="value down">−{mxn(propSem)}</div>
+          <div className="delta muted">salen de caja · no es gasto ni utilidad</div></div>
         <div className="card kpi"><div className="label">Efectivo restante</div>
           <div className={'value '+(efectivoRestante>=0?'up':'down')}>{mxn(efectivoRestante)}</div>
-          <div className="delta muted">ventas efectivo − gastos efectivo</div></div>
+          <div className="delta muted">efectivo − gastos efectivo − propinas</div></div>
       </div>
 
       <div className="grid" style={{gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
