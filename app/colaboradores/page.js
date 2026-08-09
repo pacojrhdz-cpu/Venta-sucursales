@@ -17,6 +17,7 @@ export default function Colaboradores() {
   const [colabs, setColabs] = useState([]);
   const [incidencias, setInc] = useState([]);
   const [nombre, setNombre] = useState('');
+  const [diasNuevo, setDiasNuevo] = useState(6);
   const [inc, setIncForm] = useState({ colaborador_id:'', fecha: hoyISO(), estatus:'falta' });
 
   useEffect(() => { if (sucursales.length && !suc) setSuc(sucursales[0].id); }, [sucursales]);
@@ -37,8 +38,10 @@ export default function Colaboradores() {
     setInc(data||[]);
   }
   async function agregarColab(e){ e.preventDefault(); if(!nombre.trim())return;
-    await supabase.from('colaboradores').insert({sucursal_id:suc,nombre:nombre.trim()});
-    setNombre(''); cargarColabs(); }
+    await supabase.from('colaboradores').insert({sucursal_id:suc,nombre:nombre.trim(),dias_semana:Number(diasNuevo)||6});
+    setNombre(''); setDiasNuevo(6); cargarColabs(); }
+  async function actualizarDias(id, valor){
+    await supabase.from('colaboradores').update({dias_semana:Number(valor)||0}).eq('id',id); cargarColabs(); }
   async function borrarColab(id){ if(!confirm('¿Eliminar colaborador?'))return;
     await supabase.from('colaboradores').delete().eq('id',id); cargarColabs(); }
   async function agregarInc(e){ e.preventDefault(); if(!inc.colaborador_id)return;
@@ -69,15 +72,20 @@ export default function Colaboradores() {
           <form className="row" onSubmit={agregarColab}>
             <div className="field" style={{flex:1}}><label>Nombre</label>
               <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Nombre del colaborador" /></div>
+            <div className="field" style={{minWidth:130}}><label>Días por semana</label>
+              <input type="number" min="1" max="7" value={diasNuevo} onChange={e=>setDiasNuevo(e.target.value)} /></div>
             <button className="btn" type="submit">Agregar</button>
           </form>
-          <table style={{marginTop:12}}><thead><tr><th>Nombre</th><th></th></tr></thead>
+          <table style={{marginTop:12}}><thead><tr><th>Nombre</th><th className="num">Días/sem</th><th></th></tr></thead>
             <tbody>
               {colabs.map(c=>(<tr key={c.id}><td>{c.nombre}</td>
+                <td className="num"><input type="number" min="1" max="7" defaultValue={c.dias_semana??6}
+                  style={{width:70,textAlign:'right'}} onBlur={e=>actualizarDias(c.id,e.target.value)} /></td>
                 <td className="num"><button className="btn danger sm" onClick={()=>borrarColab(c.id)}>Eliminar</button></td></tr>))}
-              {colabs.length===0 && <tr><td colSpan={2} className="muted">Sin colaboradores.</td></tr>}
+              {colabs.length===0 && <tr><td colSpan={3} className="muted">Sin colaboradores.</td></tr>}
             </tbody>
           </table>
+          <p className="hint">Días que trabaja por semana (ej. 6 tiempo completo, 2 fin de semana). El bono se reparte proporcional a estos días.</p>
         </div>
 
         <div className="card">
