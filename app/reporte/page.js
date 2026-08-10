@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta } from '../../lib/calculos';
+import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, sueldoEfectivoSemana } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -72,7 +72,7 @@ export default function Reporte() {
       setDeducs(dd||[]);
       const { data: mm } = await supabase.from('nomina_metodo').select('*')
         .in('colaborador_id',ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
-      const mp2={}; (mm||[]).forEach(r=>{ mp2[`${r.colaborador_id}|${r.fecha_inicio}`]=r.metodo; }); setMetodos(mp2);
+      const mp2={}; (mm||[]).forEach(r=>{ mp2[`${r.colaborador_id}|${r.fecha_inicio}`]={sueldo:r.sueldo, metodo:r.metodo}; }); setMetodos(mp2);
     } else { setRegistros({}); setDeducs([]); setMetodos({}); }
     const { data: om } = await supabase.from('objetivos').select('meta_mensual')
       .eq('sucursal_id',suc).eq('anio',anio).eq('mes',mes).maybeSingle();
@@ -103,8 +103,10 @@ export default function Reporte() {
   }) : { detalle:[] };
   const bonoDe = id => bonoSem.detalle.find(d=>d.id===id)?.bono || 0;
   const dedDe = id => deducs.filter(d=>d.colaborador_id===id && d.fecha_inicio===t?.start).reduce((s,d)=>s+Number(d.monto),0);
-  const metDe = id => metodos[`${id}|${t?.start}`] || 'efectivo';
-  const nomina = colabs.map(c=>{ const sueldo=Number(c.sueldo||0), b=bonoDe(c.id), d=dedDe(c.id);
+  const metDe = id => metodos[`${id}|${t?.start}`]?.metodo || 'efectivo';
+  const nomina = colabs.map(c=>{
+    const sueldo = sueldoEfectivoSemana(c.id, semIdx, tramos, metodos, c.sueldo);
+    const b=bonoDe(c.id), d=dedDe(c.id);
     return { id:c.id, nombre:c.nombre, sueldo, bono:b, ded:d, neto:sueldo+b-d, metodo:metDe(c.id) }; });
   const nominaEfectivo = nomina.filter(n=>n.metodo==='efectivo').reduce((s,n)=>s+n.neto,0);
   const nominaTotal = nomina.reduce((s,n)=>s+n.neto,0);
