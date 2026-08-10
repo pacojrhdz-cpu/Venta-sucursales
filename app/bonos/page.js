@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, calcularBono, semanasNaturalesQueTocan, diasEnMes } from '../../lib/calculos';
+import { mxn, pct, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -35,7 +35,7 @@ export default function Bonos() {
   async function cargar() {
     const desde = semanas.length ? semanas[0].inicioISO : iniMesISO;
     const hasta = semanas.length ? semanas[semanas.length-1].finISO : finMesISO;
-    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta,plataforma')
+    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjeta_otras,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
     const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
@@ -53,7 +53,7 @@ export default function Bonos() {
   }
 
   const ventaEntre = (a,b) => ventas.filter(v=>v.fecha>=a && v.fecha<=b)
-    .reduce((s,v)=>s+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
+    .reduce((s,v)=>s+ventaBruta(v),0);
 
   const k = (cid,start) => `${cid}|${start}`;
   const diasDe = (cid,start,fragDays) => {
