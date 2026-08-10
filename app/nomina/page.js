@@ -23,6 +23,7 @@ export default function Nomina() {
   const [metaMes, setMetaMes] = useState(0);
   const [deducs, setDeducs] = useState([]);
   const [ded, setDed] = useState({ colaborador_id:'', concepto:'', monto:'' });
+  const [metodos, setMetodos] = useState({}); // colaborador_id -> metodo (para la semana)
 
   const ndMes = diasEnMes(anio, mes);
   const pmes = `${anio}-${String(mes).padStart(2,'0')}`;
@@ -72,10 +73,19 @@ export default function Nomina() {
   async function cargarDeducs() {
     if (!t) return;
     const ids = colabs.map(c=>c.id);
-    if (!ids.length) { setDeducs([]); return; }
+    if (!ids.length) { setDeducs([]); setMetodos({}); return; }
     const { data } = await supabase.from('deducciones').select('*')
       .in('colaborador_id', ids).eq('fecha_inicio', t.start).order('creado_en');
     setDeducs(data||[]);
+    const { data: mm } = await supabase.from('nomina_metodo').select('colaborador_id,metodo')
+      .in('colaborador_id', ids).eq('fecha_inicio', t.start);
+    const mp={}; (mm||[]).forEach(r=>{ mp[r.colaborador_id]=r.metodo; }); setMetodos(mp);
+  }
+  async function guardarMetodo(cid, metodo) {
+    setMetodos(prev=>({ ...prev, [cid]: metodo }));
+    await supabase.from('nomina_metodo').upsert(
+      { colaborador_id:cid, fecha_inicio:t.start, metodo },
+      { onConflict:'colaborador_id,fecha_inicio' });
   }
 
   const ventaEntre = (a,b) => ventas.filter(v=>v.fecha>=a && v.fecha<=b)
@@ -111,9 +121,11 @@ export default function Nomina() {
 
   const filas = colabs.map(c=>{
     const sueldo=Number(c.sueldo||0), b=bonoDe(c.id), d=dedDe(c.id);
-    return { id:c.id, nombre:c.nombre, sueldo, bono:b, deducciones:d, neto: sueldo+b-d };
+    const metodo = metodos[c.id] || 'efectivo';
+    return { id:c.id, nombre:c.nombre, sueldo, bono:b, deducciones:d, neto: sueldo+b-d, metodo };
   });
   const tot = filas.reduce((o,f)=>({sueldo:o.sueldo+f.sueldo, bono:o.bono+f.bono, ded:o.ded+f.deducciones, neto:o.neto+f.neto}), {sueldo:0,bono:0,ded:0,neto:0});
+  const totEfectivo = filas.filter(f=>f.metodo==='efectivo').reduce((s,f)=>s+f.neto,0);
 
   return (
     <>
@@ -140,7 +152,7 @@ export default function Nomina() {
       <div className="card" style={{marginBottom:16}}>
         <div style={{overflowX:'auto'}}>
         <table>
-          <thead><tr><th>Colaborador</th><th className="num">Sueldo</th><th className="num">Bono</th><th className="num">Deducciones</th><th className="num">Neto a pagar</th></tr></thead>
+          <thead><tr><th>Colaborador</th><th className="num">Sueldo</th><th className="num">Bono</th><th className="num">Deducciones</th><th className="num">Neto a pagar</th><th>Se pagó con</th></tr></thead>
           <tbody>
             {filas.map(f=>(
               <tr key={f.id}><td>{f.nombre}</td>
@@ -150,9 +162,14 @@ export default function Nomina() {
                   onBlur={()=>guardarSueldo(f.id)} /></td>
                 <td className="num up">{mxn(f.bono)}</td>
                 <td className="num down">{f.deducciones>0?'−'+mxn(f.deducciones):'—'}</td>
-                <td className="num"><b>{mxn(f.neto)}</b></td></tr>
+                <td className="num"><b>{mxn(f.neto)}</b></td>
+                <td><select value={f.metodo} onChange={e=>guardarMetodo(f.id, e.target.value)}>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="tarjeta">Tarjeta</option>
+                </select></td></tr>
             ))}
-            {filas.length===0 && <tr><td colSpan={5} className="muted">Sin colaboradores.</td></tr>}
+            {filas.length===0 && <tr><td colSpan={6} className="muted">Sin colaboradores.</td></tr>}
           </tbody>
           <tfoot><tr style={{borderTop:'2px solid var(--line)'}}>
             <td><b>TOTAL</b></td>
@@ -160,10 +177,11 @@ export default function Nomina() {
             <td className="num"><b>{mxn(tot.bono)}</b></td>
             <td className="num"><b>−{mxn(tot.ded)}</b></td>
             <td className="num"><b>{mxn(tot.neto)}</b></td>
+            <td className="muted">Efectivo: {mxn(totEfectivo)}</td>
           </tr></tfoot>
         </table>
         </div>
-        <p className="hint">El sueldo se guarda por colaborador. El bono viene de la semana en la sección de Bonos.</p>
+        <p className="hint">Marca cómo se pagó a cada quien. Lo que se paga en <b>efectivo</b> sale de la caja y se resta en el Reporte semanal. Nómina en efectivo esta semana: <b>{mxn(totEfectivo)}</b>.</p>
       </div>
 
       <div className="card no-print">
