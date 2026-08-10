@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, calcularBono, semanasNaturalesQueTocan, diasEnMes, semanaDelMes } from '../../lib/calculos';
+import { mxn, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -53,7 +53,7 @@ export default function Nomina() {
   async function cargar() {
     const desde = tramos.length ? tramos[0].inicioISO : iniMesISO;
     const hasta = tramos.length ? tramos[tramos.length-1].finISO : finMesISO;
-    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta,plataforma')
+    const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjeta_otras,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
     const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
@@ -79,7 +79,7 @@ export default function Nomina() {
   }
 
   const ventaEntre = (a,b) => ventas.filter(v=>v.fecha>=a && v.fecha<=b)
-    .reduce((s,v)=>s+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
+    .reduce((s,v)=>s+ventaBruta(v),0);
   const key = (cid,start)=>`${cid}|${start}`;
   const diasDe = (cid,start,fragDays) => { const r=registros[key(cid,start)]; const v=r?.dias; return (v===undefined||v===null||v==='')?fragDays:Number(v); };
   const retDe = (cid,start) => Number(registros[key(cid,start)]?.retardos||0);
