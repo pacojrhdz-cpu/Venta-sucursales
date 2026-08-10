@@ -84,9 +84,10 @@ export default function Nomina() {
   const diasDe = (cid,start,fragDays) => { const r=registros[key(cid,start)]; const v=r?.dias; return (v===undefined||v===null||v==='')?fragDays:Number(v); };
   const retDe = (cid,start) => Number(registros[key(cid,start)]?.retardos||0);
 
-  async function guardarSueldo(id, valor) {
-    await supabase.from('colaboradores').update({ sueldo: Number(valor||0) }).eq('id', id);
-    setColabs(colabs.map(c=>c.id===id?{...c,sueldo:Number(valor||0)}:c));
+  function setSueldoLocal(id, val) { setColabs(colabs.map(c=>c.id===id?{...c,sueldo:val}:c)); }
+  async function guardarSueldo(id) {
+    const c = colabs.find(x=>x.id===id);
+    await supabase.from('colaboradores').update({ sueldo: Number(c?.sueldo||0) }).eq('id', id);
   }
   async function agregarDed(e){ e.preventDefault();
     if(!ded.colaborador_id || !ded.monto) return;
@@ -144,8 +145,9 @@ export default function Nomina() {
             {filas.map(f=>(
               <tr key={f.id}><td>{f.nombre}</td>
                 <td className="num"><input type="number" style={{width:110,textAlign:'right'}}
-                  defaultValue={f.sueldo||''} placeholder="0"
-                  onBlur={e=>guardarSueldo(f.id, e.target.value)} /></td>
+                  value={colabs.find(c=>c.id===f.id)?.sueldo ?? ''} placeholder="0"
+                  onChange={e=>setSueldoLocal(f.id, e.target.value)}
+                  onBlur={()=>guardarSueldo(f.id)} /></td>
                 <td className="num up">{mxn(f.bono)}</td>
                 <td className="num down">{f.deducciones>0?'−'+mxn(f.deducciones):'—'}</td>
                 <td className="num"><b>{mxn(f.neto)}</b></td></tr>
