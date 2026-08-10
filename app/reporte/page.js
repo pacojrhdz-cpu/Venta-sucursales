@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaSemanalEfectiva } from '../../lib/calculos';
+import { mxn, pct, avance, semanaDelMes, semanasDelMes, metaSemanalEfectiva, sumaTarjetas, ventaBruta } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -43,7 +43,7 @@ export default function Reporte() {
     setTasaPlat(s?Number(s.comision_plataforma||0):0);
     const desde = iso(anio,mes,1), hasta = iso(anio,mes,diasDelMes(anio,mes));
     const { data: v } = await supabase.from('ventas_diarias')
-      .select('fecha,efectivo,tarjeta,plataforma,propinas').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
+      .select('fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjeta_otras,plataforma,propinas').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
     const { data: g } = await supabase.from('gastos')
       .select('fecha,monto,metodo,categoria,descripcion').eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta).order('fecha');
@@ -61,7 +61,7 @@ export default function Reporte() {
   // --- Datos de la semana seleccionada ---
   const vSem = ventas.filter(v=>semanaDelMes(v.fecha)===semana);
   const efeSem = vSem.reduce((a,v)=>a+Number(v.efectivo||0),0);
-  const tarSem = vSem.reduce((a,v)=>a+Number(v.tarjeta||0),0);
+  const tarSem = vSem.reduce((a,v)=>a+sumaTarjetas(v),0);
   const platSem = vSem.reduce((a,v)=>a+Number(v.plataforma||0),0);
   const propSem = vSem.reduce((a,v)=>a+Number(v.propinas||0),0);
   const totalSem = efeSem+tarSem+platSem;
@@ -79,7 +79,7 @@ export default function Reporte() {
   const avSem = avance(totalSem, metaSemAjust);
 
   // --- Proyeccion del mes ---
-  const totalMes = ventas.reduce((a,v)=>a+Number(v.efectivo||0)+Number(v.tarjeta||0)+Number(v.plataforma||0),0);
+  const totalMes = ventas.reduce((a,v)=>a+ventaBruta(v),0);
   const esMesActual = anio===HOY.getFullYear() && mes===(HOY.getMonth()+1);
   const diasTrans = esMesActual ? HOY.getDate() : ndMes;
   const proyeccion = diasTrans>0 ? (totalMes/diasTrans)*ndMes : totalMes;
