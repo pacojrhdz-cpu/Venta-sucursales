@@ -44,18 +44,21 @@ export default function Ventas() {
     const ms={}; (os||[]).forEach(r=>ms[r.semana]=Number(r.meta_semanal)); setMetasSem(ms);
   }
 
-  async function guardarDia(dia, campo, valor) {
-    const actual = ventas[dia] || {};
-    const nuevo = { ...actual, [campo]: Number(valor||0) };
-    setVentas({ ...ventas, [dia]: nuevo });
+  // Campos CONTROLADOS: al escribir se actualiza el estado (así siempre reflejan
+  // la sucursal cargada y no se "pegan" datos de otra sucursal).
+  function setCampoLocal(dia, campo, val) {
+    setVentas(prev => ({ ...prev, [dia]: { ...(prev[dia]||{}), [campo]: val } }));
+  }
+  async function guardarDia(dia) {
+    const v = ventas[dia] || {};
     await supabase.from('ventas_diarias').upsert({
       sucursal_id: suc, fecha: iso(anio,mes,dia),
-      efectivo: Number(nuevo.efectivo||0),
-      tarjeta_debito: Number(nuevo.tarjeta_debito||0),
-      tarjeta_credito: Number(nuevo.tarjeta_credito||0),
-      tarjeta_otras: Number(nuevo.tarjeta_otras||0),
-      plataforma: Number(nuevo.plataforma||0),
-      propinas: Number(nuevo.propinas||0),
+      efectivo: Number(v.efectivo||0),
+      tarjeta_debito: Number(v.tarjeta_debito||0),
+      tarjeta_credito: Number(v.tarjeta_credito||0),
+      tarjeta_otras: Number(v.tarjeta_otras||0),
+      plataforma: Number(v.plataforma||0),
+      propinas: Number(v.propinas||0),
     }, { onConflict: 'sucursal_id,fecha' });
   }
 
@@ -84,7 +87,9 @@ export default function Ventas() {
 
   const inp = (d, campo) => (
     <input type="number" style={{width:88,textAlign:'right'}} placeholder="0"
-      defaultValue={ventas[d]?.[campo] ?? ''} onBlur={e=>guardarDia(d,campo,e.target.value)} />
+      value={ventas[d]?.[campo] ?? ''}
+      onChange={e=>setCampoLocal(d,campo,e.target.value)}
+      onBlur={()=>guardarDia(d)} />
   );
 
   return (
