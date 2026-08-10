@@ -12,6 +12,7 @@ const LINKS = [
   { href: '/objetivos',     label: 'Objetivos',      icon: '🎯' },
   { href: '/colaboradores', label: 'Colaboradores',  icon: '👥' },
   { href: '/bonos',         label: 'Bonos',          icon: '🏆' },
+  { href: '/nomina',        label: 'Nómina',         icon: '💰' },
   { href: '/sucursales',    label: 'Sucursales',     icon: '🏬' },
   { href: '/configuracion', label: 'Configuración',  icon: '⚙️' },
 ];
