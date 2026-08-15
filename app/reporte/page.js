@@ -104,8 +104,9 @@ export default function Reporte() {
   const bonoDe = id => bonoSem.detalle.find(d=>d.id===id)?.bono || 0;
   const dedDe = id => deducs.filter(d=>d.colaborador_id===id && d.fecha_inicio===t?.start).reduce((s,d)=>s+Number(d.monto),0);
   const metDe = id => metodos[`${id}|${t?.start}`]?.metodo || 'efectivo';
+  const factor7 = t ? t.fragDays/7 : 1;   // semana partida: sueldo proporcional
   const nomina = colabs.map(c=>{
-    const sueldo = sueldoEfectivoSemana(c.id, semIdx, tramos, metodos, c.sueldo);
+    const sueldo = sueldoEfectivoSemana(c.id, semIdx, tramos, metodos, c.sueldo) * factor7;
     const b=bonoDe(c.id), d=dedDe(c.id);
     return { id:c.id, nombre:c.nombre, sueldo, bono:b, ded:d, neto:sueldo+b-d, metodo:metDe(c.id) }; });
   const nominaEfectivo = nomina.filter(n=>n.metodo==='efectivo').reduce((s,n)=>s+n.neto,0);
