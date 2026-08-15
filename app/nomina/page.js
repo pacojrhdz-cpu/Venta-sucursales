@@ -89,14 +89,17 @@ export default function Nomina() {
     setDeducs(data||[]);
   }
 
-  async function guardarFila(cid) {
-    const payload = { colaborador_id:cid, fecha_inicio:t.start,
-      sueldo: Number(sueldoInp[cid]||0), metodo: metodoInp[cid]||'efectivo' };
-    setRegMes(prev=>({ ...prev, [`${cid}|${t.start}`]: { sueldo:payload.sueldo, metodo:payload.metodo } }));
-    await supabase.from('nomina_metodo').upsert(payload, { onConflict:'colaborador_id,fecha_inicio' });
+  // Guarda SOLO la semana actual (fecha_inicio = t.start). No toca otras semanas.
+  async function guardarFila(cid, sueldoVal, metodoVal) {
+    const sueldo = Number((sueldoVal !== undefined ? sueldoVal : sueldoInp[cid]) || 0);
+    const metodo = (metodoVal !== undefined ? metodoVal : metodoInp[cid]) || 'efectivo';
+    setRegMes(prev=>({ ...prev, [`${cid}|${t.start}`]: { sueldo, metodo } }));
+    await supabase.from('nomina_metodo').upsert(
+      { colaborador_id:cid, fecha_inicio:t.start, sueldo, metodo },
+      { onConflict:'colaborador_id,fecha_inicio' });
   }
   function setSueldoLocal(cid, val){ setSueldoInp(prev=>({ ...prev, [cid]: val })); }
-  function setMetodoLocal(cid, val){ setMetodoInp(prev=>({ ...prev, [cid]: val })); }
+  async function cambiarMetodo(cid, val){ setMetodoInp(prev=>({ ...prev, [cid]: val })); await guardarFila(cid, undefined, val); }
 
   async function agregarDed(e){ e.preventDefault();
     if(!ded.colaborador_id || !ded.monto) return;
@@ -121,9 +124,14 @@ export default function Nomina() {
   const dedDe = id => deducs.filter(d=>d.colaborador_id===id).reduce((s,d)=>s+Number(d.monto),0);
   const nombreDe = id => colabs.find(c=>c.id===id)?.nombre || '';
 
+  // Semana partida: solo se paga la parte proporcional del sueldo (días del mes / 7)
+  const factor7 = t ? t.fragDays/7 : 1;
+  const parcial = t ? t.fragDays < 7 : false;
   const filas = colabs.map(c=>{
-    const sueldo=Number(sueldoInp[c.id]||0), b=bonoDe(c.id), d=dedDe(c.id), metodo=metodoInp[c.id]||'efectivo';
-    return { id:c.id, nombre:c.nombre, sueldo, bono:b, deducciones:d, neto: sueldo+b-d, metodo };
+    const sueldoSem = Number(sueldoInp[c.id]||0);      // sueldo semanal (rate)
+    const sueldo = sueldoSem * factor7;                // proporcional a los días del mes
+    const b=bonoDe(c.id), d=dedDe(c.id), metodo=metodoInp[c.id]||'efectivo';
+    return { id:c.id, nombre:c.nombre, sueldoSem, sueldo, bono:b, deducciones:d, neto: sueldo+b-d, metodo };
   });
   const tot = filas.reduce((o,f)=>({sueldo:o.sueldo+f.sueldo, bono:o.bono+f.bono, ded:o.ded+f.deducciones, neto:o.neto+f.neto}), {sueldo:0,bono:0,ded:0,neto:0});
   const totEfectivo = filas.filter(f=>f.metodo==='efectivo').reduce((s,f)=>s+f.neto,0);
@@ -147,7 +155,8 @@ export default function Nomina() {
 
       <div className="card" style={{marginBottom:16}}>
         <h2 style={{marginBottom:4}}>Nómina — {sucursales.find(s=>s.id===suc)?.nombre||''}</h2>
-        <p className="muted" style={{margin:0}}>{t ? `Semana ${semIdx+1} · ${etiqueta(t.start)} – ${etiqueta(t.end)} · ${MESES[mes-1]} ${anio}` : ''}</p>
+        <p className="muted" style={{margin:0}}>{t ? `Semana ${semIdx+1} · ${etiqueta(t.start)} – ${etiqueta(t.end)} · ${MESES[mes-1]} ${anio}` : ''}
+          {parcial && <span style={{color:'#fbbf24'}}> · semana partida: solo {t.fragDays} de 7 días son de {MESES[mes-1]}, el sueldo se paga proporcional ({t.fragDays}/7)</span>}</p>
       </div>
 
       <div className="card" style={{marginBottom:16}}>
@@ -160,11 +169,12 @@ export default function Nomina() {
                 <td className="num"><input type="number" style={{width:110,textAlign:'right'}}
                   value={sueldoInp[f.id] ?? ''} placeholder="0"
                   onChange={e=>setSueldoLocal(f.id, e.target.value)}
-                  onBlur={()=>guardarFila(f.id)} /></td>
+                  onBlur={e=>guardarFila(f.id, e.target.value)} />
+                  {parcial && <div className="hint">× {t.fragDays}/7 = {mxn(f.sueldo)}</div>}</td>
                 <td className="num up">{mxn(f.bono)}</td>
                 <td className="num down">{f.deducciones>0?'−'+mxn(f.deducciones):'—'}</td>
                 <td className="num"><b>{mxn(f.neto)}</b></td>
-                <td><select value={f.metodo} onChange={e=>{ setMetodoLocal(f.id, e.target.value); setTimeout(()=>guardarFila(f.id),0); }}>
+                <td><select value={f.metodo} onChange={e=>cambiarMetodo(f.id, e.target.value)}>
                   <option value="efectivo">Efectivo</option>
                   <option value="transferencia">Transferencia</option>
                   <option value="tarjeta">Tarjeta</option>
@@ -182,7 +192,7 @@ export default function Nomina() {
           </tr></tfoot>
         </table>
         </div>
-        <p className="hint">El sueldo es <b>independiente por semana</b> (editar una no afecta las demás; se prellena con la semana anterior). Lo pagado en efectivo sale de caja y se resta en el Reporte semanal. Nómina en efectivo esta semana: <b>{mxn(totEfectivo)}</b>.</p>
+        <p className="hint">El sueldo es <b>independiente por semana</b>: cada semana arranca con el sueldo base y editar una <b>no</b> afecta a las demás. Lo pagado en efectivo sale de caja y se resta en el Reporte semanal. Nómina en efectivo esta semana: <b>{mxn(totEfectivo)}</b>.</p>
       </div>
 
       <div className="card no-print">
