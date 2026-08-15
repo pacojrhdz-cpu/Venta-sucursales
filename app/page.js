@@ -116,8 +116,8 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="topbar"><h1>📊 Panel de control</h1>
-        <button className="btn no-print" onClick={()=>window.print()}>Descargar PDF mensual</button></div>
+      <div className="topbar no-print">
+        <button className="btn" onClick={()=>window.print()}>Descargar PDF mensual</button></div>
 
       <div className="card no-print" style={{marginBottom:18}}>
         <div className="row">
