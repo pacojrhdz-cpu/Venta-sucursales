@@ -54,28 +54,49 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .hint{font-size:12px;color:var(--muted);margin-top:6px}
 @media(max-width:800px){.layout{flex-direction:column}.sidebar{width:100%;height:auto;position:static;display:flex;flex-wrap:wrap;gap:6px}.nav{display:flex;flex-wrap:wrap;gap:4px}.brand{width:100%}}
 
-/* ===== Impresión / PDF (Reporte semanal) ===== */
+/* ===== Logo y encabezado de reportes ===== */
+.brand-logo { height: 32px; width: auto; filter: brightness(0) invert(1); }
+.reporte-logo { height: 56px; width: auto; filter: brightness(0) invert(1); }
+.reporte-header { border-bottom: 3px solid var(--brand); }
+
+/* ===== Impresión / PDF ===== */
 @media print {
+  /* Forzar que el navegador imprima colores y fondos */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  @page { margin: 12mm; }
+
   .sidebar, .no-print, .topbar button { display: none !important; }
   .layout { display: block; }
   .main { max-width: 100%; padding: 0; margin: 0; }
-  body { background: #fff; color: #111; }
+  body { background: #fff; color: #0f172a; font-size: 12px; }
   h1 { font-size: 20px; }
-  .card { background: #fff; border: 1px solid #d0d5dd; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
-  .kpi .value, .kpi .label, .muted, .hint, td, th, h1, h2 { color: #111 !important; }
+  .topbar { margin-bottom: 6px; }
+
+  /* Encabezado del reporte: logo negro + acento de marca */
+  .reporte-header { border-bottom: 3px solid #2563eb !important; margin-bottom: 12px; padding-bottom: 12px; }
+  .reporte-logo { filter: none !important; height: 60px; }
+
+  /* Tarjetas y KPIs */
+  .card { background: #fff; border: 1px solid #e2e8f0; box-shadow: none; border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
+  .kpis { gap: 8px; }
+  .kpi { background: #f8fafc !important; }
+  .kpi .label { color: #64748b !important; font-size: 10px; }
+  .kpi .value { color: #0f172a !important; font-size: 19px; }
+  .kpi .delta { color: #64748b !important; }
+  h2 { color: #0f172a !important; font-size: 14px; }
+  .muted, .hint { color: #64748b !important; }
+  td, th { color: #0f172a !important; }
+  th { color: #64748b !important; }
+
   .up { color: #067647 !important; }
   .down { color: #b42318 !important; }
-  .bar { background: #eee; }
-  .tag.g { background:#e7f6ec; color:#067647; }
-  .tag.a { background:#fdf3e7; color:#b54708; }
-  .tag.r { background:#fdeceb; color:#b42318; }
-  .tag.n { background:#eef1f4; color:#475467; }
-  @page { margin: 14mm; }
-}
+  .bar { background: #e2e8f0 !important; }
+  .tag.g { background:#dcfce7 !important; color:#166534 !important; }
+  .tag.a { background:#fef3c7 !important; color:#92400e !important; }
+  .tag.r { background:#fee2e2 !important; color:#991b1b !important; }
+  .tag.n { background:#f1f5f9 !important; color:#475467 !important; }
 
-/* ===== Logo ===== */
-.brand-logo { height: 32px; width: auto; filter: brightness(0) invert(1); }
-.reporte-logo { height: 56px; width: auto; filter: brightness(0) invert(1); }
-@media print {
-  .reporte-logo { filter: none; }   /* en el PDF el logo va en negro sobre blanco */
+  table { font-size: 11px; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
 }
