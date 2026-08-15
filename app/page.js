@@ -108,6 +108,7 @@ export default function Dashboard() {
   const margen = totalAct>0 ? utilidad/totalAct : null;
   const nomMes = `${MESES[mes-1]} ${anio}`;
   const nomSuc = suc ? (sucursales.find(s=>s.id===suc)?.nombre||'') : 'Todas las sucursales';
+  const fechaGen = new Date().toLocaleDateString('es-MX', { day:'numeric', month:'long', year:'numeric' });
 
   const filaDesglose = [
     ['Efectivo', act.efe], ['Tarjeta débito', act.deb], ['Tarjeta crédito', act.cre],
@@ -127,9 +128,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="card" style={{marginBottom:16}}>
-        <h2 style={{marginBottom:4}}>Reporte mensual — {nomSuc}</h2>
-        <p className="muted" style={{margin:0}}>{nomMes}</p>
+      <div className="card reporte-header" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
+        <img src="/logo.png" className="reporte-logo" alt="Logo" />
+        <div style={{flex:1}}>
+          <h2 style={{margin:'0 0 4px'}}>Reporte mensual — {nomSuc}</h2>
+          <p className="muted" style={{margin:0}}>{nomMes}</p>
+        </div>
+        <div className="muted" style={{textAlign:'right',fontSize:12,lineHeight:1.5}}>
+          <div>Ventas por Sucursal</div>
+          <div>Generado {fechaGen}</div>
+        </div>
       </div>
 
       <div className="grid kpis" style={{marginBottom:18}}>
