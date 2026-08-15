@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { useSucursales } from '../lib/hooks';
+import { useSucursales, useConfig } from '../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../components/Selectores';
-import { mxn, pct, avance, ventaBruta, comisionVenta } from '../lib/calculos';
+import { mxn, pct, avance, ventaBruta, comisionVenta, nominaMensual } from '../lib/calculos';
 import { MESES } from '../lib/fechas';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
@@ -15,12 +15,13 @@ const CAMPOS = 'sucursal_id,fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjet
 
 export default function Dashboard() {
   const { sucursales } = useSucursales();
+  const { config } = useConfig();
   const [suc, setSuc] = useState('');
   const [anio, setAnio] = useState(HOY.getFullYear());
   const [mes, setMes] = useState(HOY.getMonth() + 1);
   const [datos, setDatos] = useState(null);
 
-  useEffect(() => { if (sucursales.length) cargar(); }, [sucursales, suc, anio, mes]);
+  useEffect(() => { if (sucursales.length) cargar(); }, [sucursales, suc, anio, mes, config]);
 
   async function cargar() {
     const sucDe = id => sucursales.find(s=>s.id===id) || {};
@@ -66,6 +67,22 @@ export default function Dashboard() {
       supabase.from('objetivos').select('sucursal_id,meta_mensual').eq('anio',anio).eq('mes',mes));
     const metaTotal = (obj||[]).reduce((a,o)=>a+Number(o.meta_mensual),0);
 
+    // ---- Datos de nómina del mes ----
+    let colQ = supabase.from('colaboradores').select('id,nombre,sueldo,sucursal_id').eq('activo',true);
+    if (suc) colQ = colQ.eq('sucursal_id', suc);
+    const { data: cols } = await colQ;
+    const idsC = (cols||[]).map(c=>c.id);
+    const iniMesISO = iso(anio,mes,1), finMesISO = iso(anio,mes,diasDelMes(anio,mes));
+    let registros={}, regMes={}, deducMap={};
+    if (idsC.length) {
+      const { data: dt } = await supabase.from('dias_trabajados').select('*').in('colaborador_id',idsC).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
+      (dt||[]).forEach(r=>{ registros[`${r.colaborador_id}|${r.fecha_inicio}`]={dias:r.dias, retardos:r.retardos}; });
+      const { data: nm } = await supabase.from('nomina_metodo').select('*').in('colaborador_id',idsC).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
+      (nm||[]).forEach(r=>{ regMes[`${r.colaborador_id}|${r.fecha_inicio}`]={sueldo:r.sueldo, metodo:r.metodo}; });
+      const { data: dd } = await supabase.from('deducciones').select('*').in('colaborador_id',idsC).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
+      (dd||[]).forEach(r=>{ const k=`${r.colaborador_id}|${r.fecha_inicio}`; deducMap[k]=(deducMap[k]||0)+Number(r.monto); });
+    }
+
     const porSuc = (suc ? sucursales.filter(s=>s.id===suc) : sucursales).map(s=>{
       const vv = vAct.filter(v=>v.sucursal_id===s.id);
       const efe=vv.reduce((a,v)=>a+Number(v.efectivo||0),0);
@@ -74,16 +91,20 @@ export default function Dashboard() {
       const com=vv.reduce((a,v)=>a+comisionVenta(v,s),0);
       const gs=(gAct||[]).filter(g=>g.sucursal_id===s.id).reduce((a,g)=>a+Number(g.monto),0);
       const meta=(obj||[]).find(o=>o.sucursal_id===s.id)?.meta_mensual||0;
-      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, meta:Number(meta) };
+      const nom = nominaMensual({ anio, mes, metaMensual: meta, ventas: vv,
+        colaboradores: (cols||[]).filter(c=>c.sucursal_id===s.id),
+        registros, regMes, deducciones: deducMap, cfg: config });
+      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, meta:Number(meta), nomina: nom.total };
     });
+    const nominaTotal = porSuc.reduce((a,s)=>a+s.nomina,0);
 
-    setDatos({ trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev });
+    setDatos({ trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal });
   }
 
   if (!datos) return <p className="muted">Cargando panel…</p>;
-  const { trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev } = datos;
+  const { trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal } = datos;
   const delta = totalPre>0 ? (totalAct-totalPre)/totalPre : null;
-  const utilidad = totalAct - act.com - gastosAct;
+  const utilidad = totalAct - act.com - gastosAct - nominaTotal;
   const margen = totalAct>0 ? utilidad/totalAct : null;
   const nomMes = `${MESES[mes-1]} ${anio}`;
   const nomSuc = suc ? (sucursales.find(s=>s.id===suc)?.nombre||'') : 'Todas las sucursales';
@@ -122,10 +143,11 @@ export default function Dashboard() {
         <div className="card kpi"><div className="label">Plataforma</div><div className="value">{mxn(act.plat)}</div></div>
         <div className="card kpi"><div className="label">Comisiones</div><div className="value down">−{mxn(act.com)}</div></div>
         <div className="card kpi"><div className="label">Gastos del mes</div><div className="value">{mxn(gastosAct)}</div></div>
-        <div className="card kpi"><div className="label">Propinas</div><div className="value">{mxn(act.prop)}</div><div className="delta muted">no es venta</div></div>
-        <div className="card kpi"><div className="label">Utilidad bruta</div>
+        <div className="card kpi"><div className="label">Nómina del mes</div><div className="value down">−{mxn(nominaTotal)}</div>
+          <div className="delta muted">sueldos + bonos − deducciones</div></div>
+        <div className="card kpi"><div className="label">Utilidad</div>
           <div className={'value '+(utilidad>=0?'up':'down')}>{mxn(utilidad)}</div>
-          <div className="delta muted">venta − comisión − gastos{margen!==null?` · margen ${pct(margen)}`:''}</div></div>
+          <div className="delta muted">venta − comisión − gastos − nómina{margen!==null?` · margen ${pct(margen)}`:''}</div></div>
         <div className="card kpi"><div className="label">Avance del objetivo</div>
           <div className="value">{metaTotal>0?pct(avance(totalAct,metaTotal)):'—'}</div>
           <div className="delta muted">Meta: {mxn(metaTotal)}</div>
@@ -143,7 +165,8 @@ export default function Dashboard() {
             <tr style={{borderTop:'2px solid var(--line)'}}><td><b>Venta total</b></td><td className="num"><b>{mxn(totalAct)}</b></td><td></td></tr>
             <tr><td className="down">Comisiones</td><td className="num down">−{mxn(act.com)}</td><td></td></tr>
             <tr><td className="down">Gastos</td><td className="num down">−{mxn(gastosAct)}</td><td></td></tr>
-            <tr style={{borderTop:'1px solid var(--line)'}}><td><b>Utilidad bruta</b></td><td className={'num '+(utilidad>=0?'up':'down')}><b>{mxn(utilidad)}</b></td><td className="num muted">{margen!==null?pct(margen):''}</td></tr>
+            <tr><td className="down">Nómina (sueldos + bonos)</td><td className="num down">−{mxn(nominaTotal)}</td><td></td></tr>
+            <tr style={{borderTop:'1px solid var(--line)'}}><td><b>Utilidad</b></td><td className={'num '+(utilidad>=0?'up':'down')}><b>{mxn(utilidad)}</b></td><td className="num muted">{margen!==null?pct(margen):''}</td></tr>
             <tr><td className="muted">Propinas (aparte)</td><td className="num muted">{mxn(act.prop)}</td><td></td></tr>
           </tbody></table>
         </div>
@@ -169,20 +192,21 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>Sucursal</th><th className="num">Efectivo</th><th className="num">Tarjetas</th>
             <th className="num">Plataforma</th><th className="num">Comisión</th><th className="num">Venta total</th><th className="num">Gastos</th>
-            <th className="num">Utilidad</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
+            <th className="num">Nómina</th><th className="num">Utilidad</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
           <tbody>
             {porSuc.map((s,i)=>{
-              const av=avance(s.total,s.meta); const util=s.total-s.com-s.gastos;
+              const av=avance(s.total,s.meta); const util=s.total-s.com-s.gastos-s.nomina;
               return (
                 <tr key={i}><td><b>{s.nombre}</b></td>
                   <td className="num">{mxn(s.efe)}</td><td className="num">{mxn(s.tar)}</td><td className="num">{mxn(s.plat)}</td>
                   <td className="num down">−{mxn(s.com)}</td><td className="num"><b>{mxn(s.total)}</b></td><td className="num">{mxn(s.gastos)}</td>
+                  <td className="num down">−{mxn(s.nomina)}</td>
                   <td className={'num '+(util>=0?'up':'down')}><b>{mxn(util)}</b></td><td className="num">{mxn(s.meta)}</td>
                   <td className="num">{s.meta>0?<span className={'tag '+(av>=1?'g':av>=0.7?'a':'r')}>{pct(av)}</span>:<span className="tag n">—</span>}</td>
                 </tr>
               );
             })}
-            {porSuc.length===0 && <tr><td colSpan={10} className="muted">Sin sucursales.</td></tr>}
+            {porSuc.length===0 && <tr><td colSpan={11} className="muted">Sin sucursales.</td></tr>}
           </tbody>
         </table>
         </div>
