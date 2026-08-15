@@ -153,10 +153,13 @@ export default function Nomina() {
         </div>
       </div>
 
-      <div className="card" style={{marginBottom:16}}>
-        <h2 style={{marginBottom:4}}>Nómina — {sucursales.find(s=>s.id===suc)?.nombre||''}</h2>
-        <p className="muted" style={{margin:0}}>{t ? `Semana ${semIdx+1} · ${etiqueta(t.start)} – ${etiqueta(t.end)} · ${MESES[mes-1]} ${anio}` : ''}
-          {parcial && <span style={{color:'#fbbf24'}}> · semana partida: solo {t.fragDays} de 7 días son de {MESES[mes-1]}, el sueldo se paga proporcional ({t.fragDays}/7)</span>}</p>
+      <div className="card reporte-header" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
+        <img src="/logo.png" className="reporte-logo" alt="Logo" />
+        <div>
+          <h2 style={{marginBottom:4}}>Nómina — {sucursales.find(s=>s.id===suc)?.nombre||''}</h2>
+          <p className="muted" style={{margin:0}}>{t ? `Semana ${semIdx+1} · ${etiqueta(t.start)} – ${etiqueta(t.end)} · ${MESES[mes-1]} ${anio}` : ''}
+            {parcial && <span style={{color:'#fbbf24'}}> · semana partida: solo {t.fragDays} de 7 días son de {MESES[mes-1]}, el sueldo se paga proporcional ({t.fragDays}/7)</span>}</p>
+        </div>
       </div>
 
       <div className="card" style={{marginBottom:16}}>
