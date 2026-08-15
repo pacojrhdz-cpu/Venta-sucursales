@@ -141,7 +141,7 @@ export default function Reporte() {
         <p className="hint">Usa "Descargar / compartir PDF" y elige "Guardar como PDF".</p>
       </div>
 
-      <div className="card" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
+      <div className="card reporte-header" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
         <img src="/logo.png" className="reporte-logo" alt="Logo" />
         <div>
           <h2 style={{marginBottom:4}}>Reporte semanal — {nombreSuc}</h2>
