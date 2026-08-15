@@ -125,8 +125,8 @@ export default function Reporte() {
 
   return (
     <>
-      <div className="topbar"><h1>📄 Reporte semanal</h1>
-        <button className="btn no-print" onClick={()=>window.print()}>Descargar / compartir PDF</button></div>
+      <div className="topbar no-print">
+        <button className="btn" onClick={()=>window.print()}>Descargar / compartir PDF</button></div>
 
       <div className="card no-print" style={{marginBottom:18}}>
         <div className="row">
