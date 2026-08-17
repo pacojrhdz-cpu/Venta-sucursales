@@ -23,6 +23,7 @@ export default function Nomina() {
   const [metaMes, setMetaMes] = useState(0);
   const [deducs, setDeducs] = useState([]);
   const [ded, setDed] = useState({ colaborador_id:'', concepto:'', monto:'' });
+  const [msg, setMsg] = useState('');
   const [regMes, setRegMes] = useState({});          // cid|start -> {sueldo, metodo}
   const [sueldoInp, setSueldoInp] = useState({});    // cid -> sueldo de la semana actual
   const [metodoInp, setMetodoInp] = useState({});    // cid -> metodo de la semana actual
@@ -94,17 +95,20 @@ export default function Nomina() {
     const sueldo = Number((sueldoVal !== undefined ? sueldoVal : sueldoInp[cid]) || 0);
     const metodo = (metodoVal !== undefined ? metodoVal : metodoInp[cid]) || 'efectivo';
     setRegMes(prev=>({ ...prev, [`${cid}|${t.start}`]: { sueldo, metodo } }));
-    await supabase.from('nomina_metodo').upsert(
+    const { error } = await supabase.from('nomina_metodo').upsert(
       { colaborador_id:cid, fecha_inicio:t.start, sueldo, metodo },
       { onConflict:'colaborador_id,fecha_inicio' });
+    if (error) setMsg('No se pudo guardar el sueldo/método: ' + error.message + '  (¿falta correr la migración v8 en Supabase?)');
+    else setMsg('');
   }
   function setSueldoLocal(cid, val){ setSueldoInp(prev=>({ ...prev, [cid]: val })); }
   async function cambiarMetodo(cid, val){ setMetodoInp(prev=>({ ...prev, [cid]: val })); await guardarFila(cid, undefined, val); }
 
   async function agregarDed(e){ e.preventDefault();
     if(!ded.colaborador_id || !ded.monto) return;
-    await supabase.from('deducciones').insert({ colaborador_id:ded.colaborador_id, fecha_inicio:t.start, concepto:ded.concepto||null, monto:Number(ded.monto) });
-    setDed({ colaborador_id:ded.colaborador_id, concepto:'', monto:'' }); cargarDeducs();
+    const { error } = await supabase.from('deducciones').insert({ colaborador_id:ded.colaborador_id, fecha_inicio:t.start, concepto:ded.concepto||null, monto:Number(ded.monto) });
+    if (error) { setMsg('No se pudo guardar la deducción: ' + error.message + '  (¿falta correr la migración v5 en Supabase?)'); return; }
+    setMsg(''); setDed({ colaborador_id:ded.colaborador_id, concepto:'', monto:'' }); cargarDeducs();
   }
   async function borrarDed(id){ await supabase.from('deducciones').delete().eq('id',id); cargarDeducs(); }
 
@@ -161,6 +165,8 @@ export default function Nomina() {
             {parcial && <span style={{color:'#fbbf24'}}> · semana partida: solo {t.fragDays} de 7 días son de {MESES[mes-1]}, el sueldo se paga proporcional ({t.fragDays}/7)</span>}</p>
         </div>
       </div>
+
+      {msg && <div className="notice no-print" style={{borderColor:'rgba(239,68,68,.4)',color:'#fca5a5',background:'rgba(239,68,68,.1)'}}>{msg}</div>}
 
       <div className="card" style={{marginBottom:16}}>
         <div style={{overflowX:'auto'}}>
