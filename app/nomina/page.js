@@ -44,7 +44,6 @@ export default function Nomina() {
 
   useEffect(() => { if (sucursales.length && !suc) setSuc(sucursales[0].id); }, [sucursales]);
   useEffect(() => { if (suc) cargar(); }, [suc, anio, mes]);
-  useEffect(() => { if (suc && t) cargarDeducs(); }, [suc, t?.start]);
   useEffect(() => {
     if (tramos.length && anio===HOY.getFullYear() && mes===(HOY.getMonth()+1)) {
       const hoyISO = `${pmes}-${String(HOY.getDate()).padStart(2,'0')}`;
@@ -78,15 +77,19 @@ export default function Nomina() {
       const { data: nm } = await supabase.from('nomina_metodo').select('*')
         .in('colaborador_id',ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
       const mp2={}; (nm||[]).forEach(r=>{ mp2[`${r.colaborador_id}|${r.fecha_inicio}`]={sueldo:r.sueldo, metodo:r.metodo}; }); setRegMes(mp2);
-    } else { setRegistros({}); setRegMes({}); }
+      // Deducciones de TODO el mes (con los colaboradores recién cargados, sin depender del estado)
+      const { data: dd } = await supabase.from('deducciones').select('*')
+        .in('colaborador_id',ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO).order('creado_en');
+      setDeducs(dd||[]);
+    } else { setRegistros({}); setRegMes({}); setDeducs([]); }
     const { data: om } = await supabase.from('objetivos').select('meta_mensual').eq('sucursal_id',suc).eq('anio',anio).eq('mes',mes).maybeSingle();
     setMetaMes(Number(om?.meta_mensual||0));
   }
-  async function cargarDeducs() {
-    if (!t) return;
+  async function recargarDeducs() {
     const ids = colabs.map(c=>c.id);
     if (!ids.length) { setDeducs([]); return; }
-    const { data } = await supabase.from('deducciones').select('*').in('colaborador_id', ids).eq('fecha_inicio', t.start).order('creado_en');
+    const { data } = await supabase.from('deducciones').select('*')
+      .in('colaborador_id', ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO).order('creado_en');
     setDeducs(data||[]);
   }
 
@@ -108,9 +111,9 @@ export default function Nomina() {
     if(!ded.colaborador_id || !ded.monto) return;
     const { error } = await supabase.from('deducciones').insert({ colaborador_id:ded.colaborador_id, fecha_inicio:t.start, concepto:ded.concepto||null, monto:Number(ded.monto) });
     if (error) { setMsg('No se pudo guardar la deducción: ' + error.message + '  (¿falta correr la migración v5 en Supabase?)'); return; }
-    setMsg(''); setDed({ colaborador_id:ded.colaborador_id, concepto:'', monto:'' }); cargarDeducs();
+    setMsg(''); setDed({ colaborador_id:ded.colaborador_id, concepto:'', monto:'' }); recargarDeducs();
   }
-  async function borrarDed(id){ await supabase.from('deducciones').delete().eq('id',id); cargarDeducs(); }
+  async function borrarDed(id){ await supabase.from('deducciones').delete().eq('id',id); recargarDeducs(); }
 
   const ventaEntre = (a,b) => ventas.filter(v=>v.fecha>=a && v.fecha<=b).reduce((s,v)=>s+ventaBruta(v),0);
   const diasDe = (cid,start,fragDays) => { const r=registros[`${cid}|${start}`]; const v=r?.dias; return (v===undefined||v===null||v==='')?fragDays:Number(v); };
@@ -125,7 +128,8 @@ export default function Nomina() {
     bono = calcularBono({ ventaPeriodo:venta, meta:t.fragDays*metaDiaria, tipo:'semanal', cfg:config, colaboradores:cols });
   }
   const bonoDe = id => bono.detalle.find(d=>d.id===id)?.bono || 0;
-  const dedDe = id => deducs.filter(d=>d.colaborador_id===id).reduce((s,d)=>s+Number(d.monto),0);
+  const dedDe = id => deducs.filter(d=>d.colaborador_id===id && d.fecha_inicio===t?.start).reduce((s,d)=>s+Number(d.monto),0);
+  const deducsSemana = deducs.filter(d=>d.fecha_inicio===t?.start);
   const nombreDe = id => colabs.find(c=>c.id===id)?.nombre || '';
 
   // Semana partida: solo se paga la parte proporcional del sueldo (días del mes / 7)
@@ -221,12 +225,12 @@ export default function Nomina() {
         <table style={{marginTop:12}}>
           <thead><tr><th>Colaborador</th><th>Concepto</th><th className="num">Monto</th><th></th></tr></thead>
           <tbody>
-            {deducs.map(d=>(
-              <tr key={d.id}><td>{nombreDe(d.colaborador_id)}</td><td>{d.concepto||'—'}</td>
+            {deducsSemana.map(d=>(
+              <tr key={d.id}><td>{nombreDe(d.colaborador_id) || '(colaborador no encontrado)'}</td><td>{d.concepto||'—'}</td>
                 <td className="num">{mxn(d.monto)}</td>
                 <td className="num"><button className="btn danger sm" onClick={()=>borrarDed(d.id)}>✕</button></td></tr>
             ))}
-            {deducs.length===0 && <tr><td colSpan={4} className="muted">Sin deducciones esta semana.</td></tr>}
+            {deducsSemana.length===0 && <tr><td colSpan={4} className="muted">Sin deducciones esta semana.</td></tr>}
           </tbody>
         </table>
       </div>
