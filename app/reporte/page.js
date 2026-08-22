@@ -94,6 +94,9 @@ export default function Reporte() {
 
   const gSem = gastos.filter(g=>inRango(g.fecha));
   const gastosEfeSem = gSem.filter(g=>(g.metodo||'efectivo')==='efectivo').reduce((a,g)=>a+Number(g.monto),0);
+  const gastosTotSem = gSem.reduce((a,g)=>a+Number(g.monto),0);
+  const gastosOtroSem = gastosTotSem - gastosEfeSem;
+  const tagMet = { efectivo:'g', tarjeta:'a', transferencia:'n' };
 
   // ----- Nómina de la semana -----
   const bonoSem = t ? calcularBono({
@@ -153,7 +156,8 @@ export default function Reporte() {
         <div className="card kpi"><div className="label">Venta de la semana</div><div className="value">{mxn(totalSem)}</div>
           <div className="delta muted">Efe {mxn(efeSem)} · Tar {mxn(tarSem)} · Plat {mxn(platSem)}</div></div>
         <div className="card kpi"><div className="label">Ventas en efectivo</div><div className="value">{mxn(efeSem)}</div></div>
-        <div className="card kpi"><div className="label">Gastos en efectivo</div><div className="value down">−{mxn(gastosEfeSem)}</div></div>
+        <div className="card kpi"><div className="label">Gastos de la semana</div><div className="value down">−{mxn(gastosTotSem)}</div>
+          <div className="delta muted">Efectivo {mxn(gastosEfeSem)} · Otros {mxn(gastosOtroSem)}</div></div>
         <div className="card kpi"><div className="label">Propinas (efectivo)</div><div className="value down">−{mxn(propSem)}</div></div>
         <div className="card kpi"><div className="label">Nómina en efectivo</div><div className="value down">−{mxn(nominaEfectivo)}</div></div>
         <div className="card kpi"><div className="label">Efectivo restante</div>
@@ -206,16 +210,22 @@ export default function Reporte() {
       </div>
 
       <div className="card">
-        <h2>Gastos en efectivo de la semana</h2>
+        <h2>Gastos de la semana</h2>
         <table>
-          <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th className="num">Monto</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Método</th><th>Categoría</th><th>Descripción</th><th className="num">Monto</th></tr></thead>
           <tbody>
-            {gSem.filter(g=>(g.metodo||'efectivo')==='efectivo').map((g,i)=>(
-              <tr key={i}><td>{g.fecha}</td><td>{g.categoria||'—'}</td><td>{g.descripcion||'—'}</td><td className="num">{mxn(g.monto)}</td></tr>
-            ))}
-            {gSem.filter(g=>(g.metodo||'efectivo')==='efectivo').length===0 && <tr><td colSpan={4} className="muted">Sin gastos en efectivo esta semana.</td></tr>}
+            {gSem.map((g,i)=>{ const met=g.metodo||'efectivo'; return (
+              <tr key={i}><td>{g.fecha}</td>
+                <td><span className={'tag '+(tagMet[met]||'n')}>{met}</span></td>
+                <td>{g.categoria||'—'}</td><td>{g.descripcion||'—'}</td><td className="num">{mxn(g.monto)}</td></tr>
+            );})}
+            {gSem.length===0 && <tr><td colSpan={5} className="muted">Sin gastos esta semana.</td></tr>}
           </tbody>
-          <tfoot><tr><td colSpan={3}><b>Total gastos en efectivo</b></td><td className="num"><b>{mxn(gastosEfeSem)}</b></td></tr></tfoot>
+          <tfoot>
+            <tr><td colSpan={4} className="muted">En efectivo (baja la caja)</td><td className="num">{mxn(gastosEfeSem)}</td></tr>
+            <tr><td colSpan={4} className="muted">Otros métodos (tarjeta / transferencia)</td><td className="num">{mxn(gastosOtroSem)}</td></tr>
+            <tr style={{borderTop:'2px solid var(--line)'}}><td colSpan={4}><b>Total gastos de la semana</b></td><td className="num"><b>{mxn(gastosTotSem)}</b></td></tr>
+          </tfoot>
         </table>
       </div>
     </>
