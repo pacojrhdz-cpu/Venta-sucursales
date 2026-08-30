@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, sueldoEfectivoSemana } from '../../lib/calculos';
+import { mxn, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, sueldoEfectivoSemana, cuentaEnSemana } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -67,7 +67,7 @@ export default function Nomina() {
     const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjeta_otras,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
-    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
+    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).order('nombre');
     setColabs(c||[]);
     const ids = (c||[]).map(x=>x.id);
     if (ids.length) {
@@ -119,11 +119,14 @@ export default function Nomina() {
   const diasDe = (cid,start,fragDays) => { const r=registros[`${cid}|${start}`]; const v=r?.dias; return (v===undefined||v===null||v==='')?fragDays:Number(v); };
   const retDe = (cid,start) => Number(registros[`${cid}|${start}`]?.retardos||0);
 
+  // Colaboradores que cuentan en esta semana (activos, o inactivos con registro)
+  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, regMes, registros));
+
   // Bono de la semana
   let bono = { detalle: [] };
   if (t) {
     const venta = ventaEntre(t.start, t.end);
-    const cols = colabs.map(c=>({ id:c.id, nombre:c.nombre, retardos:retDe(c.id,t.start), faltas:0,
+    const cols = colabsSem.map(c=>({ id:c.id, nombre:c.nombre, retardos:retDe(c.id,t.start), faltas:0,
       factor: t.fragDays>0 ? Math.min(1, diasDe(c.id,t.start,t.fragDays)/t.fragDays) : 1 }));
     bono = calcularBono({ ventaPeriodo:venta, meta:t.fragDays*metaDiaria, tipo:'semanal', cfg:config, colaboradores:cols });
   }
@@ -135,11 +138,11 @@ export default function Nomina() {
   // Semana partida: solo se paga la parte proporcional del sueldo (días del mes / 7)
   const factor7 = t ? t.fragDays/7 : 1;
   const parcial = t ? t.fragDays < 7 : false;
-  const filas = colabs.map(c=>{
+  const filas = colabsSem.map(c=>{
     const sueldoSem = Number(sueldoInp[c.id]||0);      // sueldo semanal (rate)
     const sueldo = sueldoSem * factor7;                // proporcional a los días del mes
     const b=bonoDe(c.id), d=dedDe(c.id), metodo=metodoInp[c.id]||'efectivo';
-    return { id:c.id, nombre:c.nombre, sueldoSem, sueldo, bono:b, deducciones:d, neto: sueldo+b-d, metodo };
+    return { id:c.id, nombre:c.nombre, activo:c.activo, sueldoSem, sueldo, bono:b, deducciones:d, neto: sueldo+b-d, metodo };
   });
   const tot = filas.reduce((o,f)=>({sueldo:o.sueldo+f.sueldo, bono:o.bono+f.bono, ded:o.ded+f.deducciones, neto:o.neto+f.neto}), {sueldo:0,bono:0,ded:0,neto:0});
   const totEfectivo = filas.filter(f=>f.metodo==='efectivo').reduce((s,f)=>s+f.neto,0);
@@ -178,7 +181,7 @@ export default function Nomina() {
           <thead><tr><th>Colaborador</th><th className="num">Sueldo</th><th className="num">Bono</th><th className="num">Deducciones</th><th className="num">Neto a pagar</th><th>Se pagó con</th></tr></thead>
           <tbody>
             {filas.map(f=>(
-              <tr key={f.id}><td>{f.nombre}</td>
+              <tr key={f.id} style={{opacity:f.activo?1:0.7}}><td>{f.nombre}{!f.activo && <span className="tag n" style={{marginLeft:6}}>inactivo</span>}</td>
                 <td className="num"><input type="number" style={{width:110,textAlign:'right'}}
                   value={sueldoInp[f.id] ?? ''} placeholder="0"
                   onChange={e=>setSueldoLocal(f.id, e.target.value)}
