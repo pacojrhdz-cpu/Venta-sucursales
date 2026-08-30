@@ -68,7 +68,7 @@ export default function Dashboard() {
     const metaTotal = (obj||[]).reduce((a,o)=>a+Number(o.meta_mensual),0);
 
     // ---- Datos de nómina del mes ----
-    let colQ = supabase.from('colaboradores').select('id,nombre,sueldo,sucursal_id').eq('activo',true);
+    let colQ = supabase.from('colaboradores').select('id,nombre,sueldo,sucursal_id,activo');
     if (suc) colQ = colQ.eq('sucursal_id', suc);
     const { data: cols } = await colQ;
     const idsC = (cols||[]).map(c=>c.id);
