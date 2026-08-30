@@ -5,6 +5,7 @@ import { useSucursales, useConfig } from '../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../components/Selectores';
 import { mxn, pct, avance, ventaBruta, comisionVenta, nominaMensual } from '../lib/calculos';
 import { MESES } from '../lib/fechas';
+import { LOGO_URL } from '../lib/marca';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const HOY = new Date();
@@ -60,7 +61,7 @@ export default function Dashboard() {
     const totalPre = pre.efe+pre.deb+pre.cre+pre.otr+pre.plat;
 
     const { data: gAct } = await filtroSuc(
-      supabase.from('gastos').select('sucursal_id,monto').gte('fecha',iso(anio,mes,1)).lte('fecha',iso(anio,mes,diasDelMes(anio,mes))));
+      supabase.from('gastos').select('sucursal_id,monto,metodo').gte('fecha',iso(anio,mes,1)).lte('fecha',iso(anio,mes,diasDelMes(anio,mes))));
     const gastosAct = (gAct||[]).reduce((a,g)=>a+Number(g.monto),0);
 
     const { data: obj } = await filtroSuc(
@@ -89,20 +90,26 @@ export default function Dashboard() {
       const tar=vv.reduce((a,v)=>a+Number(v.tarjeta_debito||0)+Number(v.tarjeta_credito||0)+Number(v.tarjeta_otras||0),0);
       const plat=vv.reduce((a,v)=>a+Number(v.plataforma||0),0);
       const com=vv.reduce((a,v)=>a+comisionVenta(v,s),0);
-      const gs=(gAct||[]).filter(g=>g.sucursal_id===s.id).reduce((a,g)=>a+Number(g.monto),0);
+      const gsAll=(gAct||[]).filter(g=>g.sucursal_id===s.id);
+      const gs=gsAll.reduce((a,g)=>a+Number(g.monto),0);
+      const gsEfe=gsAll.filter(g=>(g.metodo||'efectivo')==='efectivo').reduce((a,g)=>a+Number(g.monto),0);
+      const prop=vv.reduce((a,v)=>a+Number(v.propinas||0),0);
       const meta=(obj||[]).find(o=>o.sucursal_id===s.id)?.meta_mensual||0;
       const nom = nominaMensual({ anio, mes, metaMensual: meta, ventas: vv,
         colaboradores: (cols||[]).filter(c=>c.sucursal_id===s.id),
         registros, regMes, deducciones: deducMap, cfg: config });
-      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, meta:Number(meta), nomina: nom.total };
+      // Efectivo restante en caja = ventas efectivo − gastos efectivo − propinas − nómina en efectivo
+      const efectivoRestante = efe - gsEfe - prop - nom.totalEfectivo;
+      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, gsEfe, prop, meta:Number(meta), nomina: nom.total, nominaEfe: nom.totalEfectivo, efectivoRestante };
     });
     const nominaTotal = porSuc.reduce((a,s)=>a+s.nomina,0);
+    const efectivoRestanteTotal = porSuc.reduce((a,s)=>a+s.efectivoRestante,0);
 
-    setDatos({ trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal });
+    setDatos({ trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal, efectivoRestanteTotal });
   }
 
   if (!datos) return <p className="muted">Cargando panel…</p>;
-  const { trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal } = datos;
+  const { trend, totalAct, totalPre, act, gastosAct, metaTotal, porSuc, prev, nominaTotal, efectivoRestanteTotal } = datos;
   const delta = totalPre>0 ? (totalAct-totalPre)/totalPre : null;
   const utilidad = totalAct - act.com - gastosAct - nominaTotal;
   const margen = totalAct>0 ? utilidad/totalAct : null;
@@ -128,7 +135,7 @@ export default function Dashboard() {
       </div>
 
       <div className="card reporte-header" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
-        <img src="/logo.png" className="reporte-logo" alt="Logo" />
+        <img src={LOGO_URL} className="reporte-logo" alt="Logo" />
         <div>
           <h2 style={{margin:'0 0 4px'}}>Reporte mensual — {nomSuc}</h2>
           <p className="muted" style={{margin:0}}>{nomMes}</p>
@@ -140,7 +147,10 @@ export default function Dashboard() {
           {delta!==null && <div className={'delta '+(delta>=0?'up':'down')}>{delta>=0?'▲':'▼'} {pct(Math.abs(delta))} vs {MESES[prev.m-1]}</div>}</div>
         <div className="card kpi"><div className="label">Mes anterior</div><div className="value">{mxn(totalPre)}</div>
           <div className="delta muted">{MESES[prev.m-1]} {prev.a}</div></div>
-        <div className="card kpi"><div className="label">Efectivo</div><div className="value">{mxn(act.efe)}</div></div>
+        <div className="card kpi"><div className="label">Efectivo (ventas)</div><div className="value">{mxn(act.efe)}</div></div>
+        <div className="card kpi"><div className="label">Efectivo restante {suc?'':'(todas)'}</div>
+          <div className={'value '+(efectivoRestanteTotal>=0?'up':'down')}>{mxn(efectivoRestanteTotal)}</div>
+          <div className="delta muted">efectivo − gastos ef. − propinas − nómina ef.</div></div>
         <div className="card kpi"><div className="label">Tarjetas</div><div className="value">{mxn(act.deb+act.cre+act.otr)}</div>
           <div className="delta muted">Déb {mxn(act.deb)} · Créd {mxn(act.cre)} · Otras {mxn(act.otr)}</div></div>
         <div className="card kpi"><div className="label">Plataforma</div><div className="value">{mxn(act.plat)}</div></div>
@@ -195,7 +205,7 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>Sucursal</th><th className="num">Efectivo</th><th className="num">Tarjetas</th>
             <th className="num">Plataforma</th><th className="num">Comisión</th><th className="num">Venta total</th><th className="num">Gastos</th>
-            <th className="num">Nómina</th><th className="num">Utilidad</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
+            <th className="num">Nómina</th><th className="num">Utilidad</th><th className="num">Efectivo restante</th><th className="num">Meta</th><th className="num">Avance</th></tr></thead>
           <tbody>
             {porSuc.map((s,i)=>{
               const av=avance(s.total,s.meta); const util=s.total-s.com-s.gastos-s.nomina;
@@ -204,12 +214,14 @@ export default function Dashboard() {
                   <td className="num">{mxn(s.efe)}</td><td className="num">{mxn(s.tar)}</td><td className="num">{mxn(s.plat)}</td>
                   <td className="num down">−{mxn(s.com)}</td><td className="num"><b>{mxn(s.total)}</b></td><td className="num">{mxn(s.gastos)}</td>
                   <td className="num down">−{mxn(s.nomina)}</td>
-                  <td className={'num '+(util>=0?'up':'down')}><b>{mxn(util)}</b></td><td className="num">{mxn(s.meta)}</td>
+                  <td className={'num '+(util>=0?'up':'down')}><b>{mxn(util)}</b></td>
+                  <td className={'num '+(s.efectivoRestante>=0?'up':'down')}><b>{mxn(s.efectivoRestante)}</b></td>
+                  <td className="num">{mxn(s.meta)}</td>
                   <td className="num">{s.meta>0?<span className={'tag '+(av>=1?'g':av>=0.7?'a':'r')}>{pct(av)}</span>:<span className="tag n">—</span>}</td>
                 </tr>
               );
             })}
-            {porSuc.length===0 && <tr><td colSpan={11} className="muted">Sin sucursales.</td></tr>}
+            {porSuc.length===0 && <tr><td colSpan={12} className="muted">Sin sucursales.</td></tr>}
           </tbody>
         </table>
         </div>
