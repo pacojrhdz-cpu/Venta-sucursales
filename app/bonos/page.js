@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta } from '../../lib/calculos';
+import { mxn, pct, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, cuentaEnSemana } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -38,7 +38,7 @@ export default function Bonos() {
     const { data: v } = await supabase.from('ventas_diarias').select('fecha,efectivo,tarjeta_debito,tarjeta_credito,tarjeta_otras,plataforma')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta);
     setVentas(v||[]);
-    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
+    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).order('nombre');
     setColabs(c||[]);
     const ids = (c||[]).map(x=>x.id);
     if (ids.length) {
@@ -82,10 +82,13 @@ export default function Bonos() {
     return { ...sem, start, end, fragDays: sem.diasEnMesSel };
   });
   const ventaMes = ventaEntre(iniMesISO, finMesISO);
-  const pesoMes = c => tramos.reduce((s,t)=>s + diasDe(c.id, t.start, t.fragDays), 0);
+  // Peso = días trabajados, contando solo las semanas donde el colaborador cuenta
+  // (activo, o inactivo con registro). Así un inactivo solo pesa en sus semanas.
+  const pesoMes = c => tramos.reduce((s,t)=> s + (cuentaEnSemana(c.id,t.start,c.activo,{},registros) ? diasDe(c.id,t.start,t.fragDays) : 0), 0);
+  const colabsMes = colabs.filter(c => c.activo || pesoMes(c) > 0);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
-    colaboradores: colabs.map(c=>({ id:c.id, nombre:c.nombre, diasMes:pesoMes(c), faltas:0, retardos:0, factor:pesoMes(c) })),
+    colaboradores: colabsMes.map(c=>({ id:c.id, nombre:c.nombre, activo:c.activo, diasMes:pesoMes(c), faltas:0, retardos:0, factor:pesoMes(c) })),
   });
 
   return (
@@ -105,7 +108,8 @@ export default function Bonos() {
         const venta = ventaEntre(t.start, t.end);
         const meta  = t.fragDays * metaDiaria;
         const cruzaMes = t.diasEnMesSel < 7;
-        const colsB = colabs.map(c=>{
+        const colsSem = colabs.filter(c=>cuentaEnSemana(c.id, t.start, c.activo, {}, registros));
+        const colsB = colsSem.map(c=>{
           const dias = diasDe(c.id, t.start, t.fragDays);
           const retardos = retDe(c.id, t.start);
           return { id:c.id, nombre:c.nombre, retardos, faltas:0,
@@ -124,10 +128,10 @@ export default function Bonos() {
             <table style={{marginTop:10}}>
               <thead><tr><th>Colaborador</th><th className="num">Días trab. (de {t.fragDays})</th><th className="num">Retardos</th><th>Estado</th><th className="num">Bono</th></tr></thead>
               <tbody>
-                {colabs.map(c=>{
+                {colsSem.map(c=>{
                   const d = bonoDe(c.id);
                   return (
-                    <tr key={c.id}><td>{c.nombre}</td>
+                    <tr key={c.id} style={{opacity:c.activo?1:0.7}}><td>{c.nombre}{!c.activo && <span className="tag n" style={{marginLeft:6}}>inactivo</span>}</td>
                       <td className="num"><input type="number" min="0" max={t.fragDays} style={{width:80,textAlign:'right'}}
                         placeholder={String(t.fragDays)}
                         value={registros[k(c.id,t.start)]?.dias ?? ''}
