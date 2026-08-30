@@ -5,7 +5,6 @@ import { useSucursales, useConfig } from '../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../components/Selectores';
 import { mxn, pct, avance, ventaBruta, comisionVenta, nominaMensual } from '../lib/calculos';
 import { MESES } from '../lib/fechas';
-import { LOGO_URL } from '../lib/marca';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const HOY = new Date();
@@ -135,7 +134,7 @@ export default function Dashboard() {
       </div>
 
       <div className="card reporte-header" style={{marginBottom:16,display:'flex',alignItems:'center',gap:16}}>
-        <img src={LOGO_URL} className="reporte-logo" alt="Logo" />
+        <img src="/logo.png" className="reporte-logo" alt="Logo" />
         <div>
           <h2 style={{margin:'0 0 4px'}}>Reporte mensual — {nomSuc}</h2>
           <p className="muted" style={{margin:0}}>{nomMes}</p>
