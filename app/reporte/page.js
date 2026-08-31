@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useSucursales, useConfig } from '../../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../../components/Selectores';
-import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, sueldoEfectivoSemana } from '../../lib/calculos';
+import { mxn, pct, avance, calcularBono, semanasNaturalesQueTocan, diasEnMes, ventaBruta, sueldoEfectivoSemana, cuentaEnSemana } from '../../lib/calculos';
 import { MESES } from '../../lib/fechas';
 
 const HOY = new Date();
@@ -60,7 +60,7 @@ export default function Reporte() {
     const { data: g } = await supabase.from('gastos').select('fecha,monto,metodo,categoria,descripcion')
       .eq('sucursal_id',suc).gte('fecha',desde).lte('fecha',hasta).order('fecha');
     setGastos(g||[]);
-    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).eq('activo',true).order('nombre');
+    const { data: c } = await supabase.from('colaboradores').select('*').eq('sucursal_id',suc).order('nombre');
     setColabs(c||[]);
     const ids = (c||[]).map(x=>x.id);
     if (ids.length) {
@@ -99,16 +99,17 @@ export default function Reporte() {
   const tagMet = { efectivo:'g', tarjeta:'a', transferencia:'n' };
 
   // ----- Nómina de la semana -----
+  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, metodos, registros));
   const bonoSem = t ? calcularBono({
     ventaPeriodo: totalSem, meta: t.fragDays*metaDiaria, tipo:'semanal', cfg:config,
-    colaboradores: colabs.map(c=>({ id:c.id, nombre:c.nombre, retardos:retDe(c.id,t.start), faltas:0,
+    colaboradores: colabsSem.map(c=>({ id:c.id, nombre:c.nombre, retardos:retDe(c.id,t.start), faltas:0,
       factor: t.fragDays>0 ? Math.min(1, diasDe(c.id,t.start,t.fragDays)/t.fragDays) : 1 })),
   }) : { detalle:[] };
   const bonoDe = id => bonoSem.detalle.find(d=>d.id===id)?.bono || 0;
   const dedDe = id => deducs.filter(d=>d.colaborador_id===id && d.fecha_inicio===t?.start).reduce((s,d)=>s+Number(d.monto),0);
   const metDe = id => metodos[`${id}|${t?.start}`]?.metodo || 'efectivo';
   const factor7 = t ? t.fragDays/7 : 1;   // semana partida: sueldo proporcional
-  const nomina = colabs.map(c=>{
+  const nomina = colabsSem.map(c=>{
     const sueldo = sueldoEfectivoSemana(c.id, semIdx, tramos, metodos, c.sueldo) * factor7;
     const b=bonoDe(c.id), d=dedDe(c.id);
     return { id:c.id, nombre:c.nombre, sueldo, bono:b, ded:d, neto:sueldo+b-d, metodo:metDe(c.id) }; });
