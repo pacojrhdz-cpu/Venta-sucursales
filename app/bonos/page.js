@@ -20,6 +20,7 @@ export default function Bonos() {
   const [colabs, setColabs] = useState([]);
   const [metaMes, setMetaMes] = useState(0);
   const [registros, setRegistros] = useState({}); // "colabId|fechaInicio" -> {dias, retardos}
+  const [bonoMesReg, setBonoMesReg] = useState({}); // colaborador_id -> monto (ajuste manual del bono mensual)
 
   const semanas = semanasNaturalesQueTocan(anio, mes);
   const ndMes = diasEnMes(anio, mes);
@@ -46,7 +47,9 @@ export default function Bonos() {
         .in('colaborador_id',ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
       const mp={}; (dt||[]).forEach(r=>{ mp[`${r.colaborador_id}|${r.fecha_inicio}`]={dias:r.dias, retardos:r.retardos}; });
       setRegistros(mp);
-    } else setRegistros({});
+      const { data: bm } = await supabase.from('bono_mensual').select('colaborador_id,monto').in('colaborador_id',ids).eq('anio',anio).eq('mes',mes);
+      const mb={}; (bm||[]).forEach(r=>{ if(r.monto!==null) mb[r.colaborador_id]=String(r.monto); }); setBonoMesReg(mb);
+    } else { setRegistros({}); setBonoMesReg({}); }
     const { data: om } = await supabase.from('objetivos').select('meta_mensual')
       .eq('sucursal_id',suc).eq('anio',anio).eq('mes',mes).maybeSingle();
     setMetaMes(Number(om?.meta_mensual||0));
@@ -90,6 +93,18 @@ export default function Bonos() {
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
     colaboradores: colabsMes.map(c=>({ id:c.id, nombre:c.nombre, activo:c.activo, diasMes:pesoMes(c), faltas:0, retardos:0, factor:pesoMes(c) })),
   });
+  // Bono mensual efectivo: ajuste manual si existe, si no el calculado
+  const bonoMesDe = (id, computed) => (bonoMesReg[id]!==undefined && bonoMesReg[id]!=='') ? Number(bonoMesReg[id]||0) : computed;
+  const totalMensual = bonoMensual.detalle.reduce((s,d)=>s+bonoMesDe(d.id, d.bono), 0);
+  function setBonoMesLocal(cid, val){ setBonoMesReg(prev=>({ ...prev, [cid]: val })); }
+  async function guardarBonoMes(cid, val){
+    if (val==='' || val===undefined || val===null) {
+      setBonoMesReg(prev=>{ const n={...prev}; delete n[cid]; return n; });
+      await supabase.from('bono_mensual').delete().eq('colaborador_id',cid).eq('anio',anio).eq('mes',mes);
+    } else {
+      await supabase.from('bono_mensual').upsert({ colaborador_id:cid, anio, mes, monto:Number(val) }, { onConflict:'colaborador_id,anio,mes' });
+    }
+  }
 
   return (
     <>
@@ -154,7 +169,7 @@ export default function Bonos() {
         );
       })}
 
-      <p className="section-title">Bono mensual · la bolsa se reparte entre elegibles, proporcional a sus días trabajados en el mes</p>
+      <p className="section-title">Bono mensual · la bolsa se reparte proporcional a los días; puedes editar el bono de cada quien (ej. dejar en 0 a quien no le vas a dar)</p>
       <div className="card">
         <div className="row" style={{justifyContent:'space-between'}}>
           <h2 style={{margin:0}}>Mes completo ({MESES[mes-1]})</h2>
@@ -163,17 +178,27 @@ export default function Bonos() {
             Paga <b>{pct(bonoMensual.porcentaje)}</b> · Bolsa <b>{mxn(bonoMensual.montoBase)}</b></div>
         </div>
         <table style={{marginTop:10}}>
-          <thead><tr><th>Colaborador</th><th className="num">Días trab. (mes)</th><th>Estado</th><th className="num">Bono</th></tr></thead>
+          <thead><tr><th>Colaborador</th><th className="num">Días trab. (mes)</th><th>Estado</th><th className="num">Bono calculado</th><th className="num">Bono a pagar</th></tr></thead>
           <tbody>
-            {bonoMensual.detalle.map(d=>(
-              <tr key={d.id}><td>{d.nombre}</td><td className="num">{d.diasMes}</td>
+            {bonoMensual.detalle.map(d=>{
+              const editado = bonoMesReg[d.id]!==undefined && bonoMesReg[d.id]!=='';
+              return (
+              <tr key={d.id} style={{opacity:d.activo?1:0.7}}><td>{d.nombre}{!d.activo && <span className="tag n" style={{marginLeft:6}}>inactivo</span>}</td>
+                <td className="num">{d.diasMes}</td>
                 <td>{d.elegible?<span className="tag g">Elegible</span>:<span className="tag n">—</span>}</td>
-                <td className="num"><b>{mxn(d.bono)}</b></td></tr>
-            ))}
-            {bonoMensual.detalle.length===0 && <tr><td colSpan={4} className="muted">Sin colaboradores.</td></tr>}
+                <td className="num muted">{mxn(d.bono)}</td>
+                <td className="num"><input type="number" step="0.01" style={{width:110,textAlign:'right'}}
+                  placeholder={Number(d.bono).toFixed(2)}
+                  value={bonoMesReg[d.id] ?? ''}
+                  onChange={e=>setBonoMesLocal(d.id, e.target.value)}
+                  onBlur={e=>guardarBonoMes(d.id, e.target.value)} />
+                  {editado && <div className="hint" style={{color:'#fbbf24'}}>ajustado</div>}</td></tr>
+            );})}
+            {bonoMensual.detalle.length===0 && <tr><td colSpan={5} className="muted">Sin colaboradores.</td></tr>}
           </tbody>
-          <tfoot><tr><td colSpan={3}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(bonoMensual.totalPagar)}</b></td></tr></tfoot>
+          <tfoot><tr><td colSpan={4}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(totalMensual)}</b></td></tr></tfoot>
         </table>
+        <p className="hint">El campo <b>Bono a pagar</b> arranca con el calculado (aparece como sugerencia). Escribe otro monto para ajustarlo (ej. <b>0</b> a quien está despedido). Déjalo vacío para volver al calculado.</p>
       </div>
     </>
   );
