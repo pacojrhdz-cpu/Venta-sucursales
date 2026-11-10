@@ -47,8 +47,8 @@ export default function Bonos() {
         .in('colaborador_id',ids).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
       const mp={}; (dt||[]).forEach(r=>{ mp[`${r.colaborador_id}|${r.fecha_inicio}`]={dias:r.dias, retardos:r.retardos}; });
       setRegistros(mp);
-      const { data: bm } = await supabase.from('bono_mensual').select('colaborador_id,monto').in('colaborador_id',ids).eq('anio',anio).eq('mes',mes);
-      const mb={}; (bm||[]).forEach(r=>{ if(r.monto!==null) mb[r.colaborador_id]=String(r.monto); }); setBonoMesReg(mb);
+      const { data: bm } = await supabase.from('bono_mensual').select('colaborador_id,monto,metodo').in('colaborador_id',ids).eq('anio',anio).eq('mes',mes);
+      const mb={}; (bm||[]).forEach(r=>{ mb[r.colaborador_id]={ monto: r.monto!==null?String(r.monto):'', metodo: r.metodo||'efectivo' }; }); setBonoMesReg(mb);
     } else { setRegistros({}); setBonoMesReg({}); }
     const { data: om } = await supabase.from('objetivos').select('meta_mensual')
       .eq('sucursal_id',suc).eq('anio',anio).eq('mes',mes).maybeSingle();
@@ -87,23 +87,23 @@ export default function Bonos() {
   const ventaMes = ventaEntre(iniMesISO, finMesISO);
   // Peso = días trabajados, contando solo las semanas donde el colaborador cuenta
   // (activo, o inactivo con registro). Así un inactivo solo pesa en sus semanas.
-  const pesoMes = c => tramos.reduce((s,t)=> s + (cuentaEnSemana(c.id,t.start,c.activo,{},registros) ? diasDe(c.id,t.start,t.fragDays) : 0), 0);
+  const pesoMes = c => tramos.reduce((s,t)=> s + (cuentaEnSemana(c.id,t.start,c.activo,{},registros,c.fecha_ingreso,c.fecha_baja) ? diasDe(c.id,t.start,t.fragDays) : 0), 0);
   const colabsMes = colabs.filter(c => c.activo || pesoMes(c) > 0);
   const bonoMensual = calcularBono({
     ventaPeriodo: ventaMes, meta: metaMes, tipo:'mensual', cfg: config,
     colaboradores: colabsMes.map(c=>({ id:c.id, nombre:c.nombre, activo:c.activo, diasMes:pesoMes(c), faltas:0, retardos:0, factor:pesoMes(c) })),
   });
-  // Bono mensual efectivo: ajuste manual si existe, si no el calculado
-  const bonoMesDe = (id, computed) => (bonoMesReg[id]!==undefined && bonoMesReg[id]!=='') ? Number(bonoMesReg[id]||0) : computed;
+  // Bono mensual: monto (ajuste manual o calculado) y método de pago
+  const montoDe = (id) => bonoMesReg[id]?.monto;
+  const metodoDe = (id) => bonoMesReg[id]?.metodo || 'efectivo';
+  const bonoMesDe = (id, computed) => { const m=montoDe(id); return (m!==undefined && m!=='') ? Number(m||0) : computed; };
   const totalMensual = bonoMensual.detalle.reduce((s,d)=>s+bonoMesDe(d.id, d.bono), 0);
-  function setBonoMesLocal(cid, val){ setBonoMesReg(prev=>({ ...prev, [cid]: val })); }
-  async function guardarBonoMes(cid, val){
-    if (val==='' || val===undefined || val===null) {
-      setBonoMesReg(prev=>{ const n={...prev}; delete n[cid]; return n; });
-      await supabase.from('bono_mensual').delete().eq('colaborador_id',cid).eq('anio',anio).eq('mes',mes);
-    } else {
-      await supabase.from('bono_mensual').upsert({ colaborador_id:cid, anio, mes, monto:Number(val) }, { onConflict:'colaborador_id,anio,mes' });
-    }
+  function setBonoMesLocal(cid, campo, val){ setBonoMesReg(prev=>({ ...prev, [cid]: { monto: prev[cid]?.monto ?? '', metodo: prev[cid]?.metodo ?? 'efectivo', [campo]: val } })); }
+  async function guardarBonoMes(cid){
+    const r = bonoMesReg[cid] || {};
+    const monto = (r.monto===''||r.monto===undefined) ? null : Number(r.monto);
+    const metodo = r.metodo || 'efectivo';
+    await supabase.from('bono_mensual').upsert({ colaborador_id:cid, anio, mes, monto, metodo }, { onConflict:'colaborador_id,anio,mes' });
   }
 
   return (
@@ -123,7 +123,7 @@ export default function Bonos() {
         const venta = ventaEntre(t.start, t.end);
         const meta  = t.fragDays * metaDiaria;
         const cruzaMes = t.diasEnMesSel < 7;
-        const colsSem = colabs.filter(c=>cuentaEnSemana(c.id, t.start, c.activo, {}, registros));
+        const colsSem = colabs.filter(c=>cuentaEnSemana(c.id, t.start, c.activo, {}, registros, c.fecha_ingreso, c.fecha_baja));
         const colsB = colsSem.map(c=>{
           const dias = diasDe(c.id, t.start, t.fragDays);
           const retardos = retDe(c.id, t.start);
@@ -178,10 +178,10 @@ export default function Bonos() {
             Paga <b>{pct(bonoMensual.porcentaje)}</b> · Bolsa <b>{mxn(bonoMensual.montoBase)}</b></div>
         </div>
         <table style={{marginTop:10}}>
-          <thead><tr><th>Colaborador</th><th className="num">Días trab. (mes)</th><th>Estado</th><th className="num">Bono calculado</th><th className="num">Bono a pagar</th></tr></thead>
+          <thead><tr><th>Colaborador</th><th className="num">Días trab. (mes)</th><th>Estado</th><th className="num">Bono calculado</th><th className="num">Bono a pagar</th><th>Se pagó con</th></tr></thead>
           <tbody>
             {bonoMensual.detalle.map(d=>{
-              const editado = bonoMesReg[d.id]!==undefined && bonoMesReg[d.id]!=='';
+              const editado = montoDe(d.id)!==undefined && montoDe(d.id)!=='';
               return (
               <tr key={d.id} style={{opacity:d.activo?1:0.7}}><td>{d.nombre}{!d.activo && <span className="tag n" style={{marginLeft:6}}>inactivo</span>}</td>
                 <td className="num">{d.diasMes}</td>
@@ -189,16 +189,21 @@ export default function Bonos() {
                 <td className="num muted">{mxn(d.bono)}</td>
                 <td className="num"><input type="number" step="0.01" style={{width:110,textAlign:'right'}}
                   placeholder={Number(d.bono).toFixed(2)}
-                  value={bonoMesReg[d.id] ?? ''}
-                  onChange={e=>setBonoMesLocal(d.id, e.target.value)}
-                  onBlur={e=>guardarBonoMes(d.id, e.target.value)} />
-                  {editado && <div className="hint" style={{color:'#fbbf24'}}>ajustado</div>}</td></tr>
+                  value={montoDe(d.id) ?? ''}
+                  onChange={e=>setBonoMesLocal(d.id, 'monto', e.target.value)}
+                  onBlur={()=>guardarBonoMes(d.id)} />
+                  {editado && <div className="hint" style={{color:'#fbbf24'}}>ajustado</div>}</td>
+                <td><select value={metodoDe(d.id)} onChange={e=>{ setBonoMesLocal(d.id,'metodo',e.target.value); setTimeout(()=>guardarBonoMes(d.id),0); }}>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="tarjeta">Tarjeta</option>
+                </select></td></tr>
             );})}
-            {bonoMensual.detalle.length===0 && <tr><td colSpan={5} className="muted">Sin colaboradores.</td></tr>}
+            {bonoMensual.detalle.length===0 && <tr><td colSpan={6} className="muted">Sin colaboradores.</td></tr>}
           </tbody>
-          <tfoot><tr><td colSpan={4}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(totalMensual)}</b></td></tr></tfoot>
+          <tfoot><tr><td colSpan={4}><b>Total a pagar mensual</b></td><td className="num"><b>{mxn(totalMensual)}</b></td><td></td></tr></tfoot>
         </table>
-        <p className="hint">El campo <b>Bono a pagar</b> arranca con el calculado (aparece como sugerencia). Escribe otro monto para ajustarlo (ej. <b>0</b> a quien está despedido). Déjalo vacío para volver al calculado.</p>
+        <p className="hint">El <b>Bono a pagar</b> arranca con el calculado (sugerencia); escribe otro monto para ajustar (ej. <b>0</b> a un despedido) o déjalo vacío para el calculado. En <b>Se pagó con</b> marca cómo lo pagaste: solo el bono en <b>efectivo</b> baja tu caja; el transferido afecta la utilidad pero no la caja.</p>
       </div>
     </>
   );
