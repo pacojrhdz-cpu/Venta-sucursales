@@ -99,7 +99,7 @@ export default function Reporte() {
   const tagMet = { efectivo:'g', tarjeta:'a', transferencia:'n' };
 
   // ----- Nómina de la semana -----
-  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, metodos, registros));
+  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, metodos, registros, c.fecha_ingreso, c.fecha_baja));
   const bonoSem = t ? calcularBono({
     ventaPeriodo: totalSem, meta: t.fragDays*metaDiaria, tipo:'semanal', cfg:config,
     colaboradores: colabsSem.map(c=>({ id:c.id, nombre:c.nombre, retardos:retDe(c.id,t.start), faltas:0,
