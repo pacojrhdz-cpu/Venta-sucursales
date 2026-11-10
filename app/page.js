@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useSucursales, useConfig } from '../lib/hooks';
 import { SelSucursal, SelMes, SelAnio } from '../components/Selectores';
-import { mxn, pct, avance, ventaBruta, comisionVenta, nominaMensual } from '../lib/calculos';
+import { mxn, pct, avance, ventaBruta, comisionVenta, nominaMensual, bonoMensualTotal } from '../lib/calculos';
 import { MESES } from '../lib/fechas';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
@@ -68,12 +68,12 @@ export default function Dashboard() {
     const metaTotal = (obj||[]).reduce((a,o)=>a+Number(o.meta_mensual),0);
 
     // ---- Datos de nómina del mes ----
-    let colQ = supabase.from('colaboradores').select('id,nombre,sueldo,sucursal_id,activo');
+    let colQ = supabase.from('colaboradores').select('id,nombre,sueldo,sucursal_id,activo,fecha_ingreso,fecha_baja');
     if (suc) colQ = colQ.eq('sucursal_id', suc);
     const { data: cols } = await colQ;
     const idsC = (cols||[]).map(c=>c.id);
     const iniMesISO = iso(anio,mes,1), finMesISO = iso(anio,mes,diasDelMes(anio,mes));
-    let registros={}, regMes={}, deducMap={};
+    let registros={}, regMes={}, deducMap={}, bonoMesOverride={}, bonoMesMetodo={};
     if (idsC.length) {
       const { data: dt } = await supabase.from('dias_trabajados').select('*').in('colaborador_id',idsC).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
       (dt||[]).forEach(r=>{ registros[`${r.colaborador_id}|${r.fecha_inicio}`]={dias:r.dias, retardos:r.retardos}; });
@@ -81,6 +81,8 @@ export default function Dashboard() {
       (nm||[]).forEach(r=>{ regMes[`${r.colaborador_id}|${r.fecha_inicio}`]={sueldo:r.sueldo, metodo:r.metodo}; });
       const { data: dd } = await supabase.from('deducciones').select('*').in('colaborador_id',idsC).gte('fecha_inicio',iniMesISO).lte('fecha_inicio',finMesISO);
       (dd||[]).forEach(r=>{ const k=`${r.colaborador_id}|${r.fecha_inicio}`; deducMap[k]=(deducMap[k]||0)+Number(r.monto); });
+      const { data: bm } = await supabase.from('bono_mensual').select('colaborador_id,monto,metodo').in('colaborador_id',idsC).eq('anio',anio).eq('mes',mes);
+      (bm||[]).forEach(r=>{ if(r.monto!==null) bonoMesOverride[r.colaborador_id]=r.monto; bonoMesMetodo[r.colaborador_id]=r.metodo||'efectivo'; });
     }
 
     const porSuc = (suc ? sucursales.filter(s=>s.id===suc) : sucursales).map(s=>{
@@ -94,12 +96,16 @@ export default function Dashboard() {
       const gsEfe=gsAll.filter(g=>(g.metodo||'efectivo')==='efectivo').reduce((a,g)=>a+Number(g.monto),0);
       const prop=vv.reduce((a,v)=>a+Number(v.propinas||0),0);
       const meta=(obj||[]).find(o=>o.sucursal_id===s.id)?.meta_mensual||0;
+      const colsSuc = (cols||[]).filter(c=>c.sucursal_id===s.id);
       const nom = nominaMensual({ anio, mes, metaMensual: meta, ventas: vv,
-        colaboradores: (cols||[]).filter(c=>c.sucursal_id===s.id),
-        registros, regMes, deducciones: deducMap, cfg: config });
-      // Efectivo restante en caja = ventas efectivo − gastos efectivo − propinas − nómina en efectivo
-      const efectivoRestante = efe - gsEfe - prop - nom.totalEfectivo;
-      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, gsEfe, prop, meta:Number(meta), nomina: nom.total, nominaEfe: nom.totalEfectivo, efectivoRestante };
+        colaboradores: colsSuc, registros, regMes, deducciones: deducMap, cfg: config });
+      // Bono mensual (con ajustes manuales) — también es costo de nómina
+      const bonoMes = bonoMensualTotal({ anio, mes, metaMensual: meta, ventas: vv,
+        colaboradores: colsSuc, registros, overrides: bonoMesOverride, metodos: bonoMesMetodo, cfg: config });
+      const nominaTot = nom.total + bonoMes.total;
+      // Efectivo restante en caja = ventas efectivo − gastos efectivo − propinas − nómina en efectivo (semanal + bono mensual en efectivo)
+      const efectivoRestante = efe - gsEfe - prop - nom.totalEfectivo - bonoMes.totalEfectivo;
+      return { nombre:s.nombre, efe, tar, plat, com, total:efe+tar+plat, gastos:gs, gsEfe, prop, meta:Number(meta), nomina: nominaTot, nominaEfe: nom.totalEfectivo, efectivoRestante };
     });
     const nominaTotal = porSuc.reduce((a,s)=>a+s.nomina,0);
     const efectivoRestanteTotal = porSuc.reduce((a,s)=>a+s.efectivoRestante,0);
