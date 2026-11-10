@@ -120,7 +120,7 @@ export default function Nomina() {
   const retDe = (cid,start) => Number(registros[`${cid}|${start}`]?.retardos||0);
 
   // Colaboradores que cuentan en esta semana (activos, o inactivos con registro)
-  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, regMes, registros));
+  const colabsSem = colabs.filter(c => cuentaEnSemana(c.id, t?.start, c.activo, regMes, registros, c.fecha_ingreso, c.fecha_baja));
 
   // Bono de la semana
   let bono = { detalle: [] };
